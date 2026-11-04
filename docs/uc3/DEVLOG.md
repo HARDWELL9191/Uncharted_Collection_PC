@@ -4,6 +4,88 @@ Diário do projeto: o que foi feito, o que foi decidido e por quê. Entradas mai
 
 ---
 
+## 2026-11-04 — RecompLauncher: controles e resolução sincronizados
+
+- Matheus: no lugar do "Keep current", a página do RecompLauncher e o port deviam mostrar a mesma coisa.
+- As linhas de controle agora leem e escrevem o `input.ini` (config `input`), que é o mesmo arquivo que o
+  jogo lê e o menu do port (Insert/F1 > Controles) grava. Os ícones e a resolução ficam no
+  `launcher.json` (config `launcher`, `controls/icons` e `resolution`). As três telas mostram o mesmo valor.
+  Sensibilidade: lista de 0,1 em 0,1 (mouse até 5, mira até 3, os mesmos limites do slider do menu); valor
+  fora da lista (ex.: 1,37 no slider) não marca nenhuma escolha. Pedido de slider e de grupos mandado ao dev do RecompLauncher.
+- `adopt_menu_controls`: sem `written` (primeira partida), adota todas as linhas do input.ini, para não
+  perder o que foi escolhido no RecompLauncher antes do primeiro Play. `game_environment` completa
+  `controls` com CONTROL_DEFAULTS (o RecompLauncher pode criar o launcher.json só com `controls/icons`;
+  antes disso o mouse look desligaria).
+- As opções avançadas continuam por argumento (`--on`/`--off`), porque o `disabled` é uma lista, e o
+  RecompLauncher só grava chave=valor.
+- Sem commit, sem teste no Windows.
+
+## 2026-11-04 — RecompLauncher: pasta do update separada
+
+- Matheus notou que o RecompLauncher só pede uma pasta (o jogo), e quem tem o update separado e longe do
+  jogo ficava sem ele. O RecompLauncher tem um campo `game.update` (no código, `profile.rs` `Extra`; ainda
+  não está na documentação nem no schema): pede um segundo item na tela de setup e, antes de cada Play,
+  põe o conteúdo dele (hard links e links de pasta) em `{install}/<into>`.
+- `recomplauncher.json`: `game.update` = pasta, opcional, `into: "update"`.
+- `uc_launcher.py` `apply_play_request`: sem `--update`, se `<pasta do port>/update` for um update
+  (`sce_discmap_patch.plt`), ele vira o update_dir. Update ao lado do jogo e dump mesclado continuam como antes.
+- Sem commit, sem teste no Windows. Se a aba Desenvolvedor marcar `update` em amarelo (fora do schema), é esperado.
+- Matheus: o jogo padrão do RecompLauncher passa a ser o UC1 (primeira escolha da linha Game), que abre o menu
+  da coleção, onde dá para escolher qualquer um dos três.
+- Matheus: as opções avançadas saem da página do RecompLauncher e ficam só no nosso launcher
+  (make_recomplauncher_json.py não gera mais as linhas `opt_*`; `--on`/`--off` continuam aceitos).
+- Primeiro Play abria o UC3: o RecompLauncher só passa os argumentos de uma linha depois que o jogador
+  escolhe algo nela, e sem jogo o `--play` usava `last_game` (uc3). O `start.args` agora termina em `uc1`; a
+  escolha da linha Game vem depois e vence (a última chave do comando é a que vale). FPS counter usa só `show_fps`.
+- Linha Game ganhou "Port launcher" (`--window`): o Play abre a janela do nosso launcher, já com a pasta
+  do dump (e update) que o RecompLauncher passou.
+
+## 2026-11-04 — RecompLauncher: Big Picture em tela cheia
+
+- `game_environment`: com `RECOMPLAUNCHER_MODE=bigpicture` e `display_mode=windowed` no ucndc.ini, o jogo
+  recebe `GOW3_DISPLAY_MODE=fullscreen` (override só da partida, feito pela thread Desenvolvimento junto com o
+  botão "Quit game" do menu). Janela sem borda continua como está. Sem commit, sem teste no Windows.
+
+## 2026-11-04 — RecompLauncher: opções avançadas e controles
+
+- Pedido do Matheus: quem usa o RecompLauncher não precisar abrir o nosso launcher.
+- `--play` aceita `--on <opção>` / `--off <opção>` (UC_X ou GOW3_X, só as que aparecem em Opções > Avançado).
+  Vale só para aquela partida, por cima do `disabled`/`experimental` do launcher.json. "On" usa o valor
+  testado daquele jogo; opção que o jogo não usa continua desligada. Vão para o jogo como
+  `UC_LAUNCHER_ON`/`UC_LAUNCHER_OFF`, então a troca de jogo pelo menu da coleção mantém a escolha.
+- `--play` aceita também os valores da janela Controles e grava no launcher.json como ela:
+  `--icons ps|xbox|keys|auto` (auto = controle que o RecompLauncher vê, `RECOMPLAUNCHER_PAD`),
+  `--mouse-look`, `--mouse-sensitivity`, `--aim-sensitivity`, `--invert-y`, `--pad-invert-y`, `--vibration`.
+- Novo `packaging/windows/make_recomplauncher_json.py`: refaz as linhas `opt_*` (uma por opção de
+  TOGGLE_HELP fora de FIXED, texto em inglês do próprio TOGGLE_HELP) e `ctl_*` (controles, com "Keep
+  current" primeiro para não apagar o que foi mudado no menu do jogo) do recomplauncher.json. O
+  `package_uc.sh` roda ele antes de copiar. Hoje: 6 linhas fixas + 7 de controles + 33 opções.
+- Não dá pelo RecompLauncher: trocar teclas (fica no menu do jogo, Insert/F1) e textos em português.
+- Sem commit, sem teste no Windows. Testado no Linux: --off/--on por jogo, experimental só no jogo certo,
+  --on desfaz um `disabled`, valores inválidos abrem a janela.
+
+## 2026-11-04 — Compatibilidade com o RecompLauncher
+
+- O RecompLauncher (github.com/elripalda/RecompLauncher) instala o zip da Release e, se o zip tiver um
+  `recomplauncher.json` na raiz, usa ele para achar o dump do jogador, mostrar opções na página do jogo e
+  dar Play direto, sem a janela do nosso launcher. Sem esse arquivo ele só chuta qual .exe abrir.
+- Novo `packaging/windows/recomplauncher.json` (o `package_uc.sh` copia para a raiz do zip): dump = pasta
+  com `big3-ps4_Shipping.elf`; Play = `Uncharted Launcher.exe --play --game <pasta>` + o jogo escolhido
+  (uc3/uc2/uc1) e a resolução; opções no `ucndc.ini` (janela, V-Sync, limite de FPS, contador de FPS);
+  saves em `user/savedata` (backup e nuvem do RecompLauncher); logs em `user` (`last_run.log` vai junto no
+  relatório de crash); ReShade marcado como Vulkan (não testado).
+- `launcher/uc_launcher.py`: `--play` aceita, em qualquer ordem, a chave do jogo, `--game <pasta>`,
+  `--update <pasta>` e `--resolution <720|900|1080|1440|2160>`. `--game` faz a mesma escolha do botão de
+  pasta do jogo (atualização escolhida por engano acha o jogo base, dump mesclado sem atualização, procura
+  `CUSA...-UPDATE` ao lado, inclusive no caso `CUSA02344\CUSA02344`) e grava no `launcher.json`, para a
+  janela e a troca de jogo pelo menu da coleção usarem a mesma pasta. Sem a chave, abre o último jogo
+  (`last_game`). `--play uc3` sozinho (atalho da área de trabalho) continua igual.
+- `--play` agora põe o jogo num job do Windows com KILL_ON_JOB_CLOSE: o Stop do RecompLauncher mata só o
+  `Uncharted Launcher.exe`; antes o `ucndc.exe` ficava aberto sozinho.
+- Sem commit. Falta testar no Windows: `"Uncharted Launcher.exe" --play --game D:\...\CUSA02344 uc2`, e
+  depois pelo próprio RecompLauncher (Settings > Developers > Developer tools > Add a build, apontando para a
+  pasta do zip extraído).
+
 ## 2026-10-29 — UC2: trem do prólogo, script do vagão (teste)
 
 - Os scripts de fase do UC2 (`u2data/build/main/dc1/ps4/*.bin`, formato "00CD") usam nomes por hash: CRC32 MSB-first com início 0 (`wait-for` = 0xca1359a3). Cada comando é uma lambda (código de 4 bytes por instrução + tabela de constantes); `animate`/`wait-animate` recebem pares chave/valor (chave 1 = velocidade, 2 = blend de entrada, 4 = blend de saída, 7 = locator). Ferramentas no scratchpad do fio (dis/ss.py).
@@ -1877,3 +1959,30 @@ quebrava o bash. Este repositório usa `core.autocrlf=false`. Repita isso em qua
 - 2026-10-30 Launcher: A1 (GOW3_PREP_TRUST_A1) Experimental agora vale para UC1 e UC3 (decisao do Matheus para a 0.3.8; UC1 completo teve 0 divergencias no A1 sombra).
 - 2026-10-30 Teste final da 0.3.8 pelo launcher (zip 20:08, D:\ucndc_pc): UC1 em 1440p, saida estereo, som ok, log sem erro. UC1 nao tem o shader de foco da mira (sem linha 'aim focus'), como esperado. Texto de debug no UC1/UC2 fica para quem pediu no GitHub testar.
 - 2026-10-30 0.3.8 preparada: READMEs com 'Novo na 0.3.8' (data 30/10, pisca de primeira vez saiu dos problemas, fisica do UC2 entrou, caixas do UC1 = bug do jogo, A1 UC1 e UC3), mensagem out/commit-msg-038.txt e D:\Uncharted\commit_038.bat (espera HEAD 0ee0840, 22 arquivos, sem push). Notas da release em uc3/v038/notas-release-0.3.8.md (pasta do projeto). Zip precisa ser refeito depois dos READMEs.
+- 2026-10-31 Registro: UC2 arma montada fica com o mouse em modo analogico (Matheus, uc2_2320_jogar_038). Log sem nenhuma linha de camera nesse trecho: o UC2 nao tem gancho do mouse para a camera da arma montada (o UC1 ganhou o modo arma GOW3_MOUSE_U1_GUN; o UC2 nao). Para corrigir: achar a classe da camera da arma no UC2 (como o censo do UC1) e ligar o mouse nela.
+- 2026-10-31 GOW3_MOUSE_U2_CENSUS=1 (diagnostico, desligado no codigo; src/runtime_pad.c, backup _claude/u2_census_pre): censo das cameras do UC2 1.02 igual ao do UC1. 33 vtables de camera achadas pelas relocacoes (+0=0x9bf210, +8=0x4153e0, +0xf0=0x4158c0); ganchos no update de 22 classes (slot e0 das cameras de controle, e8 das derivadas da follow; 0x41ab60 e 0x41b4b0 so pulam para 0x42f150), fora follow/mira/cover que ja tem mouse. Log 'Mouse U2 cameras: ...', dump GOW3_MOUSE_U2_CENSUS_FILE (registros U2CS). Bat D:\Uncharted\uc2_2320_arma_census.bat (= jogar_038 + censo). Falta: Matheus compilar e usar a arma montada.
+- 2026-10-31 Censo da arma montada do UC2 (uc2_2320_arma_census.bat, carro em movimento): na arma roda a camera de mira (gancho 0x450e40) sem o botao de mirar e sem a follow; 0x40aef0 roda ~2 s na entrada; 0x4383d0 roda sempre (sozinha nos menus/pausa). O aim_camera recebia o mouse mas so girava com mira apertada, por isso ia para o analogico. GOW3_MOUSE_U2_GUN=1 (teste, desligado no codigo; backup _claude/u2_census_pre/runtime_pad_census.c): na mira do UC2 sem botao e sem follow ha 100 ms, o mouse gira a direcao como na mira (mesmo teste de giro mantido; se o jogo nao mantiver, volta ao analogico); linha 'Mouse: U2 gun mode starts'. Bat D:\Uncharted\uc2_2320_arma_mouse.bat (= jogar_038 + modo arma).
+- 2026-11-04 GitHub issue 24 (UC3, RX 6600, 0.3.7): cutscene congela na imagem com som rodando e o jogo nao avanca (depois da briga no bar e do restaurante apos o telhado). Log (copia /mnt/project-files/uc3/crashes/uc3-issue24-video-congelado.log): VIDEO_INVALIDATE ligado, 60 FPS, ~600-900 draws por janela (o jogo fica no estado do video ate fechar), nada alem de 'decoder created'. Causa nao identificada. Log novo no src/runtime_videodec2.c (sem toggle, so linhas de log; backup _claude/videodec_log_pre): erros de decode/flush com codigo (8 primeiros), linha a cada 5 s com access units/pictures/erros e linha ao apagar o decoder. Separa 'jogo parou de mandar dados' / 'decoder parou de dar quadros' / 'quadros chegam mas a tela nao muda'.
+- 2026-11-04 Troca de jogo pelo menu da coletanea (relato no GitHub: abrir UC1 e escolher UC2/UC3 no menu = tela cinza; cada jogo direto funciona). Causa (mesma do port do SuperMedo, commit a9897a7): o LoadExec passa 'eboot.bin' 'ispartofuccollection' como argv completo (o primeiro e o argv[0]), mas o port punha o nome do executavel na frente, entao o jogo via 'eboot.bin' no argv[1], tomava como opcao e ficava cinza. Era a tela cinza do big3 em modo coletanea anotada em 13/10. Correcao (sem toggle, so muda o caminho do LoadExec; src/runtime.c runtime_guest_args_are_argv, src/probe.c, src/runtime_kernel.c getargc/getargv; backup _claude/loadexec_argv_pre): com GOW3_GUEST_ARG_COUNT>0 a lista do LoadExec e o argv como veio; GOW3_GUEST_ARGS manual continua depois do nome. Falta: Matheus compilar e testar UC1 -> UC2 e UC1 -> UC3 pelo menu. Obs.: no reinicio o jogo novo herda as opcoes do launcher do jogo anterior (extras por jogo, ex. faixa do UC2), ver depois.
+- 2026-11-04 Launcher: troca de jogo pelo menu da coletanea agora usa as opcoes do jogo novo. Antes o LoadExec reiniciava o --run com o ambiente do jogo anterior (UC2 aberto do UC1 rodava com as opcoes do UC1, sem a faixa SCALAR_COPY_GPU_RANGE). game_environment marca GOW3_LAUNCHER_GAME; no --run, se o GOW3_EXECUTABLE for de outro jogo, switched_game_environment refaz o ambiente com game_environment do jogo novo (argumentos GOW3_GUEST_ARG_* e UC_TEST_ passam). Log 'Launcher: uc2 options (switched from uc1 in the game menu)'. So vale no exe do launcher (zip); bats do codigo fonte nao passam pelo launcher. Testado na VM com ambiente falso (UC1 -> UC2: some BIND_RETRY/U1_GUN, entra a faixa do UC2, argumentos mantidos). Backup _claude/launcher_troca_pre. Falta: empacotar_zip e testar a troca pelo launcher.
+- 2026-11-04 Relatorio e log de relato, pensando no RecompLauncher (que manda o .log mais novo de user\ junto com o relatorio de crash dele): o last_run.log agora comeca com um cabecalho (versao do launcher, de onde abriu: janela, atalho ou RecompLauncher, Windows, CPU, RAM, dump com TITLE_ID e versao, resolucao, opcoes desligadas/experimentais, ucndc.ini). O last_run.log anterior vai para user\logs\run-<data>.log (ficam os 10 ultimos), entao o log de uma sessao com bug nao se perde ao abrir de novo. Botao 'Relatorio' na janela (e 'Uncharted Launcher.exe --report'): user\report-<data>.zip com last_run.log, os 3 logs anteriores, ucndc.ini, launcher.json, input.ini e system.txt, e abre o Explorer nele. Mensagem de erro ao fechar aponta para o botao. Testado na VM (cabecalho, rotacao, zip). Backup _claude/relatorio_pre.
+- 2026-11-04 Vigia de travamento GOW3_HANG_WATCH=<s> (src/probe.c, so Windows, desligado no codigo, launcher liga 7 em todos os jogos (pedido do Matheus), FIXED; so escreve no log, nunca fecha o jogo): depois de N s sem quadro na tela (contador de flips EOP) imprime no log, uma vez por travamento, cada thread do jogo e a GpuCommandProcessor com o RIP e ate 8 enderecos de retorno do jogo na pilha (offsets do eboot), mais quantos quadros o jogo mandou nesse tempo; avisa quando os quadros voltam. Usa o mesmo codigo do GOW3_RIP_SAMPLE. Nao pega imagem congelada que continua dando flip (video parado, tela cinza). Backup _claude/hang_watch_pre. Nao compilado aqui (falta header da GPU).
+- 2026-11-04 Teclas (pedido do Matheus): F11 agora alterna janela e tela cheia em jogo (gpu/shim/gow3_overlay.cpp; volta para o ultimo modo de tela cheia usado, sem borda se nenhum; grava no ucndc.ini como o Display mode do menu; sempre ligado). A captura de quadro (GOW3_FRAME_CAPTURE_KEY=1, so diagnostico) foi para o F12; textos do launcher GoW3 e HANDOFF.md atualizados, e a linha 'Jogo rodando' do launcher cita o F11. Backup _claude/f11_pre.
+- 2026-11-04 Limpeza de texturas (fix do port do SotC, 84fa5e5): gpu/shadps4/common/lru_cache.h usava std::invoke_result (a struct, nunca bool) em vez de invoke_result_t, entao o ForEachItemBelow nunca parava cedo e a limpeza de imagens/samplers percorria a lista inteira depois da ultima remocao. Sem toggle: o resultado e o mesmo (depois da ultima remocao cada imagem so devolvia 'parar' sem fazer nada), so deixa de percorrer o resto. So roda acima de 70% da memoria de video. Compila (teste de sintaxe na VM). Backup _claude/lru_pre.
+- 2026-11-04 Matheus aprovou o mouse na arma montada do UC2 (testado em 31/10, log _claude/uc2_2320_arma_mouse_20261030_2310.log, 18 entradas no modo arma, mouse direto). Launcher: GOW3_MOUSE_U2_GUN=1 nos extras do UC2 e em FIXED, como o do UC1. No codigo continua desligado. Backup _claude/u2_gun_launcher_pre.
+- 2026-11-04 Pedido da thread RecompLauncher (Matheus autorizou): (1) botao 'Quit game' no rodape do menu do port (gow3_overlay.cpp), com confirmacao 'Yes, quit'/'No'; manda SDL_EVENT_QUIT, a mesma saida limpa de fechar a janela (da para fechar so com o controle; o RecompLauncher faz backup dos saves quando o jogo fecha). (2) GOW3_DISPLAY_MODE=windowed|borderless|fullscreen (gow3_settings.cpp/.h): modo so desta partida; o Save do menu e o F11 gravam no ucndc.ini o valor que ja estava la (display_mode_file); valor desconhecido e ignorado com aviso no log. Backup _claude/quit_display_pre. Precisa compilar.
+
+
+## 2026-11-04 - Modo janela cabe na tela
+
+Matheus: o modo janela sempre ficava estendido. Causa: com render_resolution=native a janela nasce do tamanho do monitor; com barra de titulo e bordas ela passa da tela e fica embaixo da barra de tarefas. Agora (window.cpp FitWindowToScreen, chamado ao entrar em janela no inicio e no F11) a janela, com a moldura, e reduzida para caber na area util do monitor, mesma proporcao, centralizada. Log: "Window: WxH does not fit the screen, now WxH". Sem toggle (so muda o tamanho da janela; a resolucao de render nao muda). Backup _claude/janela_pre. Checado so a sintaxe; precisa compilar.
+
+
+## 2026-11-04 - Versao do driver da GPU no log
+
+Issue 29 (UC1 RTX 3050, device lost na Fortaleza) foi resolvido pelo jogador atualizando o driver NVIDIA (621.01). O log nao mostrava a versao do driver. Agora vk_instance.cpp (CollectDeviceParameters) escreve sempre "GPU: driver <nome> <versao>, Vulkan <versao>" logo depois de "GPU: using". Backup _claude/driver_log_pre. Sem toggle (so uma linha de log).
+
+
+## 2026-11-04 - READMEs da 0.3.9
+
+README.md, README.pt-BR.md: secao "New in 0.3.9"/"Novo na 0.3.9". LEIA-ME.txt (vai no zip): versao 0.3.9, F11, botao Sair do jogo, botao Relatorio para relatar. Backup _claude/readme039_pre.

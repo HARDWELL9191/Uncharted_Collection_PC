@@ -35,6 +35,7 @@ const char *runtime_import_name(const char *name);
 const char *runtime_executable_name(void);
 /* uc3: guest arguments after the program name (GOW3_GUEST_ARGS); returns how many (<= max). */
 int runtime_guest_args(const char **out, int max);
+int runtime_guest_args_are_argv(void);
 /* uc3: a runtime function by symbol name (sceKernelDlsym), 0 when unknown. */
 uintptr_t runtime_resolve_symbol(const char *symbol);
 /* uc3: the NID (11 characters) of a symbol name. */

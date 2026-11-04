@@ -232,8 +232,9 @@ static ABI __attribute__((noreturn)) void raise_exception(uint32_t code,uint64_t
 }
 /* The process was started without arguments other than its own name. */
 static const char *guest_argv[18];
-static ABI int32_t get_argc(void) { const char *extra[16]; return 1+runtime_guest_args(extra,16); }
+static ABI int32_t get_argc(void) { const char *extra[16]; int n=runtime_guest_args(extra,16); return runtime_guest_args_are_argv() ? n : 1+n; }
 static ABI const char **get_argv(void) {
+    if (runtime_guest_args_are_argv()) { int n=runtime_guest_args(guest_argv,16); guest_argv[n]=NULL; return guest_argv; } /* LoadExec */
     guest_argv[0]=runtime_executable_name();
     int n=runtime_guest_args(guest_argv+1,16);
     guest_argv[1+n]=NULL;

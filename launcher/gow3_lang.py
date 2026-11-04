@@ -809,7 +809,7 @@ EXTRA = {
         'Files': 'Arquivos',
         'GPU wait and readback report in the log (every 5 s)': 'Relatório de espera da GPU e leituras no registro (a cada 5 s)',
         'Shows where the frame waits for the GPU and which reads cause it. For performance tests.': 'Mostra onde o quadro espera pela GPU e quais leituras causam isso. Para testes de desempenho.',
-        'F11 captures a frame for analysis': 'F11 captura um quadro para análise',
+        'F12 captures a frame for analysis': 'F12 captura um quadro para análise',
         'Records how the next frame is drawn into the captures folder.': 'Grava como o próximo quadro é desenhado na pasta de capturas.',
         'Home': 'Início',
         'Choose the game folder': 'Escolha a pasta do jogo',

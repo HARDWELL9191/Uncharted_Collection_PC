@@ -1,4 +1,5 @@
 // gow3: SDL3 window for the Vulkan swapchain (X11 or Wayland).
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -109,12 +110,37 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     LOG_INFO(Frontend, "Window {}x{} on {}", w, h, driver);
 }
 
+// gow3: a window at the desktop size (render resolution "native") would not fit: the title bar and
+// borders push it past the screen and under the taskbar. Windowed mode keeps the window, frame
+// included, inside the screen's usable area (same aspect) and centers it when it had to shrink.
+void WindowSDL::FitWindowToScreen() {
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+    SDL_Rect usable{};
+    if (!display || !SDL_GetDisplayUsableBounds(display, &usable)) return;
+    int top = 0, left = 0, bottom = 0, right = 0;
+    if (!SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right) || top <= 0) {
+        top = 32; left = right = bottom = 8;   /* frame not known yet: a usual Windows frame */
+    }
+    const int max_w = usable.w - left - right, max_h = usable.h - top - bottom;
+    int w = 0, h = 0;
+    SDL_GetWindowSize(window, &w, &h);
+    if (max_w <= 0 || max_h <= 0 || w <= 0 || h <= 0 || (w <= max_w && h <= max_h)) return;
+    const double scale = std::min(double(max_w) / w, double(max_h) / h);
+    const int fit_w = int(w * scale), fit_h = int(h * scale);
+    SDL_SetWindowSize(window, fit_w, fit_h);
+    SDL_SetWindowPosition(window, usable.x + left + (max_w - fit_w) / 2, usable.y + top + (max_h - fit_h) / 2);
+    SDL_SyncWindow(window);
+    std::printf("Window: %dx%d does not fit the screen, now %dx%d\n", w, h, fit_w, fit_h);
+}
+
 // Windowed, borderless (desktop-sized, no mode change) or exclusive fullscreen at the desktop
 // mode. Window thread only (SDL). The swapchain follows the size events.
 void WindowSDL::ApplyDisplayMode(int mode) {
     display_mode = mode;
     if (mode == Gow3Graphics::Windowed) {
         SDL_SetWindowFullscreen(window, false);
+        SDL_SyncWindow(window);
+        FitWindowToScreen();
     } else {
         const SDL_DisplayMode* desktop = SDL_GetDesktopDisplayMode(SDL_GetDisplayForWindow(window));
         const bool exclusive = mode == Gow3Graphics::Fullscreen && desktop;

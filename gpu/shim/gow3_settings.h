@@ -60,6 +60,9 @@ struct Values {
     std::atomic<bool> actor_watch_supported{false};
     // Graphics (gow3_graphics.h). Live: applied on the next frame.
     std::atomic<int> display_mode{0};
+    /// GOW3_DISPLAY_MODE: this run's mode only; Save() keeps the ucndc.ini value (display_mode_file).
+    bool display_mode_forced = false;
+    int display_mode_file = 0;
     std::atomic<bool> vsync{true};
     std::atomic<int> fps_limit{0};
     std::atomic<bool> async_shaders{true};

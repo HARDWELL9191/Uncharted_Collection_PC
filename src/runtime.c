@@ -363,6 +363,12 @@ uintptr_t runtime_resolve_symbol(const char *symbol) {
  * GOW3_GUEST_ARG_<i>, as LoadExec sets them: an argument may hold spaces), or, by hand,
  * GOW3_GUEST_ARGS space-separated. The collection menu starts Uncharted 3 through
  * sceSystemServiceLoadExec with "eboot.bin ispartofuccollection". */
+/* LoadExec's list is argv as given (execve: its first element is argv[0]). The collection menu
+ * passes "eboot.bin" "ispartofuccollection"; with the target path put in front, Uncharted 2 and 3
+ * found "eboot.bin" in argv[1], took it for an option and stayed on a grey screen (SuperMedo's port,
+ * a9897a7). runtime_guest_args_are_argv() is 1 then: the list already starts with argv[0]. */
+static int guest_argv0;
+int runtime_guest_args_are_argv(void) { const char *unused[16]; runtime_guest_args(unused,16); return guest_argv0; }
 int runtime_guest_args(const char **out, int max) {
     static char buffer[16][256];
     static const char *args[16];
@@ -372,6 +378,7 @@ int runtime_guest_args(const char **out, int max) {
         const char *env=getenv("GOW3_GUEST_ARG_COUNT");
         if (env) {
             int n=atoi(env);
+            guest_argv0=n>0;
             for (int i=0;i<n && i<16;++i) {
                 char key[32]; snprintf(key,sizeof(key),"GOW3_GUEST_ARG_%d",i);
                 const char *arg=getenv(key);

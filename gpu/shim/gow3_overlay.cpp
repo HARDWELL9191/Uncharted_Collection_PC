@@ -871,9 +871,34 @@ void Menu() {
     } else {
         ImGui::NewLine();
     }
+    // ucndc: quit from the menu, after a confirmation. A controller has no window close button, and
+    // RecompLauncher backs the saves up when the game closes; this is the same clean exit as closing
+    // the window.
+    static bool confirm_quit = false;
+    if (!confirm_quit) {
+        if (ImGui::Button("Quit game")) {
+            confirm_quit = true;
+        }
+    } else {
+        ImGui::TextUnformatted("Quit? Progress since the last save is lost.");
+        ImGui::SameLine();
+        if (ImGui::Button("Yes, quit")) {
+            confirm_quit = false;
+            keep_open = false;
+            SDL_Event quit{};
+            quit.type = SDL_EVENT_QUIT;
+            SDL_PushEvent(&quit);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No")) {
+            confirm_quit = false;
+        }
+    }
+    ImGui::SameLine();
     const float close_width = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - close_width);
     if (ImGui::Button("Close")) {
+        confirm_quit = false;
         keep_open = false;
     }
     ImGui::End();
@@ -1277,8 +1302,19 @@ bool HandleEvent(const SDL_Event& event) {
             const char* env = std::getenv("GOW3_FRAME_CAPTURE_KEY");
             return env && *env == '1';
         }();
-        if (down && !event.key.repeat && capture_key && event.key.key == SDLK_F11) {
+        if (down && !event.key.repeat && capture_key && event.key.key == SDLK_F12) {
             Vulkan::FrameCapture::Request();
+            return true;
+        }
+        // ucndc: F11 switches between the window and full screen (the last full-screen kind used,
+        // borderless when none), saved in ucndc.ini like the menu's Display mode.
+        if (down && !event.key.repeat && event.key.key == SDLK_F11) {
+            static int last_full = Gow3Graphics::Borderless;
+            auto& mode = Gow3Settings::Get().display_mode;
+            const int now = mode.load();
+            if (now != Gow3Graphics::Windowed) last_full = now;
+            mode = now == Gow3Graphics::Windowed ? last_full : int(Gow3Graphics::Windowed);
+            Gow3Settings::Save();
             return true;
         }
         if (down && !event.key.repeat &&

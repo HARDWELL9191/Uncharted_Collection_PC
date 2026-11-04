@@ -1422,7 +1422,7 @@ class Launcher:
         self.check(body, 'gpu_profile', 'app', _('GPU time per pass in the log', 'Профиль GPU в журнале'))
         self.check(body, 'perf_diag', 'app', _('GPU wait and readback report in the log (every 5 s)'),
                    _('Shows where the frame waits for the GPU and which reads cause it. For performance tests.'))
-        self.check(body, 'frame_capture_key', 'app', _('F11 captures a frame for analysis'),
+        self.check(body, 'frame_capture_key', 'app', _('F12 captures a frame for analysis'),
                    _('Records how the next frame is drawn into the captures folder.'))
         self.check(body, 'vk_validation', 'app', _('Vulkan validation layers (needs the Vulkan SDK; much slower)',
                                                    'Слои валидации Vulkan (нужен Vulkan SDK; сильно замедляет)'))

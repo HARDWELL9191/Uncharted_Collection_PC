@@ -1,4 +1,4 @@
-Uncharted: The Nathan Drake Collection para PC (ucndc_pc) v0.3.8
+Uncharted: The Nathan Drake Collection para PC (ucndc_pc) v0.3.9
 ================================================================
 [English below]
 
@@ -27,7 +27,9 @@ Situação
   (perto de 50 FPS em áreas com muita vegetação, como o Castelo).
 
 Durante o jogo
-- Insert ou F1 no teclado, ou L2 + R2 + L3 + R3 no controle, abre o menu do port.
+- Insert ou F1 no teclado, ou L2 + R2 + L3 + R3 no controle, abre o menu do port. Lá tem o
+  botão "Sair do jogo".
+- F11 alterna entre janela e tela cheia.
 - Teclado e mouse: no launcher, botão "Controles" (ou no menu do jogo, aba Controls), ligue
   "Olhar com o mouse". O mouse gira a câmera nos três jogos; segure Alt esquerdo para soltar
   o cursor. Lá também dá para trocar teclas e ajustar a sensibilidade.
@@ -50,8 +52,8 @@ Problemas
   caindo, desligue UC_HLE_INORDER e UC_ACB_DISPATCH_PIPE em Opções > Avançado nessa parte.
 - UC3: travamento raro depois de sessões longas (timeout do driver de vídeo). Salve com frequência.
 - UC2 em 4K (talvez 1440p): texturas do cenário podem piscar. Ainda sem correção.
-- O jogo não abre ou fecha sozinho: clique em "Log" no launcher e, ao relatar, envie
-  o arquivo user\last_run.log.
+- O jogo não abre ou fecha sozinho: clique em "Relatório" no launcher e envie o zip que ele
+  cria em user\ junto com o relato (ou envie o arquivo user\last_run.log).
 
 Uncharted é marca registrada da Sony Interactive Entertainment. Este projeto não tem
 relação com a Sony, a Naughty Dog ou a Bluepoint Games. Licença: GPL v2 ou posterior
@@ -86,8 +88,10 @@ turn on mouse look to turn the camera with the mouse in all three games (hold Le
 the cursor), and change keys and sensitivity there. "Icons in the game" (Controls): PlayStation
 controller (default), Xbox controller (the game's buttons with A, B, X, Y) or Keyboard and mouse (your keys); after
 changing it or the keys, close the game and start it again from the launcher.
-In game, Insert or F1 (or L2 + R2 + L3 + R3) opens the port menu. Saves, shader cache and the log are in
-user\. When reporting a problem, send user\last_run.log.
+In game, Insert or F1 (or L2 + R2 + L3 + R3) opens the port menu (it has a "Quit game" button);
+F11 switches between window and fullscreen. Saves, shader cache and the log are in user\. When
+reporting a problem, click "Report" in the launcher and send the zip it makes in user\ (or send
+user\last_run.log).
 UC2 train prologue: you may need to jump earlier than on PS4; if the carriage still falls, turn
 off UC_HLE_INORDER and UC_ACB_DISPATCH_PIPE in Options > Advanced for that part. UC3: rare
 driver timeout crash after long sessions, so save often. UC2 in 4K (maybe 1440p): scenery textures

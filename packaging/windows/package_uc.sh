@@ -49,6 +49,10 @@ done
 cp -r scripts patches "$dest/"
 cp run.py LICENSE "$dest/"
 cp packaging/windows/LEIA-ME.txt "$dest/LEIA-ME (README).txt"
+# RecompLauncher (github.com/elripalda/RecompLauncher) reads it from the top of the zip: Play, settings, saves.
+# Its Advanced and Controls rows come from the launcher's own lists (make_recomplauncher_json.py).
+out/pyenv/Scripts/python.exe packaging/windows/make_recomplauncher_json.py
+cp packaging/windows/recomplauncher.json "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
 # No game files and nothing a player made (saves, shader caches, settings, logs) may ship.
 forbidden=$(find "$dest" \( -iname eboot.bin -o -iname '*.elf' -o -iname sce_module -o -iname sce_sys \

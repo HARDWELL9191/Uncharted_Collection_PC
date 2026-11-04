@@ -2026,6 +2026,82 @@ static void *rip_sampler(void *unused) {
     }
     return NULL;
 }
+
+/* ucndc (GOW3_HANG_WATCH=<seconds>, off in the code, on in the launcher): when no frame reaches the
+   screen for that long after the game started, the log gets where every guest thread and the GPU
+   command processor are: the instruction pointer and the first game return addresses on the stack
+   (eboot offsets). Once per freeze; it re-arms when frames come back. Frozen pictures that keep
+   flipping (a stuck video, the grey screen) are not freezes here: frames still reach the screen. */
+static void hang_print_thread(HANDLE h, const char *name, int host) {
+    CONTEXT context;
+    memset(&context, 0, sizeof(context));
+    context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+    static uint64_t stack[RIP_STACK_QWORDS];
+    SIZE_T got = 0;
+    BOOL stack_ok = FALSE;
+    if (SuspendThread(h) == (DWORD)-1) { printf("  %-24s (cannot suspend)\n", name); return; }
+    BOOL ok = GetThreadContext(h, &context);
+    for (size_t want = RIP_STACK_QWORDS; ok && !stack_ok && want >= 8; want /= 4)
+        stack_ok = ReadProcessMemory(GetCurrentProcess(), (LPCVOID)(uintptr_t)context.Rsp, stack, want * sizeof(stack[0]), &got);
+    ResumeThread(h);
+    if (!ok) { printf("  %-24s (no context)\n", name); return; }
+    char where[MAX_PATH + 32], line[1024];
+    rip_where(context.Rip, where, sizeof(where));
+    int at = snprintf(line, sizeof(line), "  %-24s at %s; calls:", name, where);
+    uint64_t base = (uint64_t)(uintptr_t)image, size = rip_image_size;
+    if (host) {
+        const unsigned char *exe = (const unsigned char *)GetModuleHandleA(NULL);
+        const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *)(exe + ((const IMAGE_DOS_HEADER *)exe)->e_lfanew);
+        base = (uint64_t)(uintptr_t)exe; size = nt->OptionalHeader.SizeOfImage;
+    }
+    int links = 0;
+    for (size_t q = 0; stack_ok && q < got / sizeof(stack[0]) && links < 8 && at < (int)sizeof(line) - 64; ++q) {
+        uint64_t v = stack[q];
+        if (v <= base || v - base >= size || !rip_after_call(v)) continue;
+        char caller[MAX_PATH + 32];
+        rip_where(v, caller, sizeof(caller));
+        at += snprintf(line + at, sizeof(line) - at, " %s", caller);
+        ++links;
+    }
+    if (!links) snprintf(line + at, sizeof(line) - at, " (none found)");
+    puts(line);
+}
+static void *hang_watch(void *arg) {
+    const unsigned seconds = (unsigned)(uintptr_t)arg;
+    uint64_t last_eop = 0, last_submit = 0;
+    unsigned still = 0;
+    int reported = 0;
+    for (;;) {
+        Sleep(1000);
+        uint64_t submit = 0, eop = 0;
+        gow3gpu_frame_counters(&submit, &eop);
+        if (eop != last_eop) {
+            if (reported) printf("Hang watch: frames again after %u s\n", still);
+            last_eop = eop; still = 0; reported = 0;
+            last_submit = submit;
+            continue;
+        }
+        if (!eop || ++still < seconds || reported) continue;
+        reported = 1;
+        printf("Hang watch: no frame on screen for %u s (game frames submitted meanwhile: %" PRIu64 ", total %" PRIu64 "); threads:\n",
+               still, submit - last_submit, submit);
+        uint32_t ids[64];
+        char names[64][32];
+        int listed = runtime_thread_snapshot(ids, names, 64);
+        for (int i = 0; i < listed; ++i) {
+            HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, ids[i]);
+            if (!h) continue;
+            hang_print_thread(h, names[i], 0);
+            CloseHandle(h);
+        }
+        unsigned long cp_id = gow3gpu_cp_thread_id();
+        HANDLE cp = cp_id ? OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, cp_id) : NULL;
+        if (cp) { hang_print_thread(cp, "GpuCommandProcessor", 1); CloseHandle(cp); }
+        printf("Hang watch: end of thread list\n");
+        fflush(stdout);
+    }
+    return NULL;
+}
 #endif
 
 /* ucndc: every GOW3_<NAME> option can also be given as UC_<NAME> (the new name wins when both
@@ -2317,6 +2393,13 @@ int main(int argc, char **argv) {
         if (!pthread_create(&sampler, NULL, rip_sampler, NULL)) pthread_detach(sampler);
         printf("GOW3_RIP_SAMPLE: sampling guest threads every ~1 ms, report every 10 s\n");
     }
+    if (getenv("GOW3_HANG_WATCH") && atoi(getenv("GOW3_HANG_WATCH")) > 0 && gpu_enabled && !check_imports) {
+        unsigned seconds = (unsigned)atoi(getenv("GOW3_HANG_WATCH"));
+        rip_image_size = size;
+        pthread_t watcher;
+        if (!pthread_create(&watcher, NULL, hang_watch, (void *)(uintptr_t)seconds)) pthread_detach(watcher);
+        printf("Hang watch: thread list in the log after %u s without a frame (GOW3_HANG_WATCH)\n", seconds);
+    }
 #endif
     if (check_imports) {
         /* Lists every import the game would stop at, without running it (needs the GPU
@@ -2425,11 +2508,12 @@ int main(int argc, char **argv) {
     static char program[256];
     snprintf(program, sizeof(program), "/app0/%s", runtime_executable_name());
     struct { uint64_t argc; const char *argv[18]; } params = {1, {program, NULL}};
-    params.argc += (uint64_t)runtime_guest_args(params.argv + 1, 16);
+    if (runtime_guest_args_are_argv()) params.argc = (uint64_t)runtime_guest_args(params.argv, 16); /* LoadExec: argv as given */
+    else params.argc += (uint64_t)runtime_guest_args(params.argv + 1, 16);
     params.argv[params.argc] = NULL;
     if (params.argc > 1) {
         printf("Guest arguments:");
-        for (uint64_t i = 1; i < params.argc; ++i) printf(" %s", params.argv[i]);
+        for (uint64_t i = runtime_guest_args_are_argv() ? 0 : 1; i < params.argc; ++i) printf(" %s", params.argv[i]);
         printf("\n");
     }
 #ifdef _WIN32

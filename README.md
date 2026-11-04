@@ -82,6 +82,16 @@ Updated 2026-10-30.
 | Uncharted 2 | `big2-ps4_Shipping.elf` | **Playable**, 51–60 FPS, with its own saves; still has some crashes |
 | Uncharted 3 | `big3-ps4_Shipping.elf` | **100% playable from start to end**, at **60 FPS in 1080p, with no upscaling or frame generation**. Some parts still need optimization and drop below 60 (around 50 in heavy vegetation, the Chateau), always staying above 30 FPS. One crash in the whole playthrough, not reproduced or fixed yet. Known issues listed below |
 
+New in 0.3.9:
+- Switching games from the collection menu works: no more gray screen, and the new game starts with its own options.
+- F11 switches between window and fullscreen during play.
+- Window mode now fits the screen (before, at the native resolution the window went past the screen and under the taskbar).
+- The port menu (Insert or F1) has a "Quit game" button, so you can close the game with the controller.
+- UC2: the mouse now turns the mounted guns.
+- Launcher: new "Report" button. It makes a zip in user\ with the log, the 3 previous logs and your settings, ready to attach to a bug report. The last 10 logs are kept in user\logs.
+- The log now starts with your Windows, CPU, RAM and GPU driver, and notes when the image freezes for 7 seconds (the game keeps running).
+- Works with [RecompLauncher](https://github.com/elripalda/RecompLauncher): it can install, update and start the port, with the options in its own window.
+
 New in 0.3.8:
 - UC2: the train prologue works at 60 FPS. Drake ran too slowly there, so the carriage fell before he reached the jump. The rooftop chase now also stays at 60 FPS.
 - Aiming no longer blurs the whole background at resolutions other than 1080p (UC2 and UC3). The autofocus measured a point off the crosshair, often on Drake.

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
@@ -98,6 +99,29 @@ typedef struct {
     int queued_count;
 } Decoder;
 static uint64_t decoded_frames;
+/* Video log (2026-11-04, GitHub issue 24: a UC3 cutscene kept one picture while its sound went on,
+ * and the game never moved past it; the log only had "decoder created"). Each decoder's counts:
+ * access units sent, pictures given back, errors (the first few with their code), a line every
+ * 5 s while one plays and one when it is deleted. Tells "the game stopped feeding the decoder"
+ * from "the decoder stopped giving pictures" from "pictures came but the screen did not change". */
+static struct { uint64_t units, pictures, errors, last_units, last_pictures, last_errors, second_ns; int printed; } vlog;
+static uint64_t vlog_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000000ull+(uint64_t)t.tv_nsec; }
+static int32_t vlog_count(const char *what, int32_t r, int unit) {
+    if (unit) ++vlog.units;
+    if (r) {
+        ++vlog.errors;
+        if (vlog.printed++<8) printf("Runtime: Videodec2 %s failed: %#x (after %llu access units, %llu pictures)\n",what,(unsigned)r,
+                                     (unsigned long long)vlog.units,(unsigned long long)vlog.pictures);
+    }
+    const uint64_t now=vlog_now();
+    if (!vlog.second_ns) vlog.second_ns=now;
+    if (now-vlog.second_ns>=5000000000ull) {
+        printf("Runtime: Videodec2 last 5 s: %llu access units, %llu pictures, %llu errors\n",(unsigned long long)(vlog.units-vlog.last_units),
+               (unsigned long long)(vlog.pictures-vlog.last_pictures),(unsigned long long)(vlog.errors-vlog.last_errors));
+        vlog.last_units=vlog.units; vlog.last_pictures=vlog.pictures; vlog.last_errors=vlog.errors; vlog.second_ns=now;
+    }
+    return r;
+}
 
 static uint32_t align(uint32_t value, uint32_t to) { return (value+to-1)&~(to-1); }
 
@@ -160,6 +184,9 @@ static void drop_queued(Decoder *d) {
 }
 static ABI int32_t delete_decoder(Decoder *d) {
     if (!d) return ERR_DECODER_INSTANCE;
+    printf("Runtime: Videodec2 decoder deleted: %llu access units, %llu pictures, %llu errors\n",(unsigned long long)vlog.units,
+           (unsigned long long)vlog.pictures,(unsigned long long)vlog.errors);
+    memset(&vlog,0,sizeof(vlog));
     drop_queued(d);
     avcodec_free_context(&d->codec); av_packet_free(&d->packet); av_frame_free(&d->frame); av_frame_free(&d->nv12);
     sws_freeContext(d->sws);
@@ -232,6 +259,7 @@ static int32_t picture(Decoder *d, FrameBuffer *buffer, OutputInfo *out) {
     static int invalidate=-1;
     if (invalidate<0) { const char *e=getenv("GOW3_VIDEO_INVALIDATE"); invalidate=e && e[0]=='1'; }
     if (invalidate) runtime_memory_invalidate((uintptr_t)luma,size+sizeof(info));
+    ++vlog.pictures;
     if (!decoded_frames++) printf("Runtime: Videodec2 first picture %ux%u (pitch %u), game buffer %p, %llu bytes\n",width,height,pitch,
                                   buffer->frame_buffer,(unsigned long long)buffer->frame_buffer_size);
     return 0;
@@ -270,7 +298,7 @@ static int32_t check(Decoder *d, FrameBuffer *buffer, OutputInfo *out) {
     out->is_valid=false; out->picture_count=0;
     return 0;
 }
-static ABI int32_t decode(Decoder *d, const InputData *input, FrameBuffer *buffer, OutputInfo *out) {
+static int32_t decode_unit(Decoder *d, const InputData *input, FrameBuffer *buffer, OutputInfo *out) {
     if (!d) return ERR_DECODER_INSTANCE;
     if (!input) return ERR_ARGUMENT_POINTER;
     if (input->this_size!=sizeof(*input)) return ERR_STRUCT_SIZE;
@@ -287,12 +315,15 @@ static ABI int32_t decode(Decoder *d, const InputData *input, FrameBuffer *buffe
     d->packet->data=NULL; d->packet->size=0;
     return sent<0 ? ERR_API_FAIL : receive(d,buffer,out);
 }
+static ABI int32_t decode(Decoder *d, const InputData *input, FrameBuffer *buffer, OutputInfo *out) {
+    return vlog_count("decode",decode_unit(d,input,buffer,out),1);
+}
 /* One buffered picture per call; the game calls it until no picture comes back. */
 static ABI int32_t flush(Decoder *d, FrameBuffer *buffer, OutputInfo *out) {
     int32_t r=check(d,buffer,out);
-    if (r) return r;
+    if (r) return vlog_count("flush",r,0);
     avcodec_send_packet(d->codec,NULL); /* AVERROR_EOF once draining: the rest still comes out */
-    return receive(d,buffer,out);
+    return vlog_count("flush",receive(d,buffer,out),0);
 }
 static ABI int32_t reset(Decoder *d) {
     if (!d) return ERR_DECODER_INSTANCE;

@@ -205,6 +205,23 @@ void Load() {
             Set(v, key, value);
         }
     }
+    // ucndc: GOW3_DISPLAY_MODE=windowed|borderless|fullscreen for this run only (RecompLauncher's
+    // Big Picture asks for full screen); the menu's Save and F11 keep ucndc.ini's own value.
+    if (const char* env = std::getenv("GOW3_DISPLAY_MODE"); env && env[0]) {
+        int forced = -1;
+        for (int m = 0; m < Gow3Graphics::DisplayModeCount; ++m) {
+            if (Gow3Graphics::DisplayModeKeys[m] == env) forced = m;
+        }
+        if (forced >= 0) {
+            v.display_mode_file = v.display_mode.load();
+            v.display_mode = forced;
+            v.display_mode_forced = true;
+            std::printf("Settings: display mode %s for this run (GOW3_DISPLAY_MODE; ucndc.ini keeps %s)\n", env,
+                        Gow3Graphics::DisplayModeKeys[std::clamp(v.display_mode_file, 0, 2)].data());
+        } else {
+            std::printf("Settings: GOW3_DISPLAY_MODE=%s not understood (windowed, borderless or fullscreen)\n", env);
+        }
+    }
     v.startup_preset = v.preset;
     v.startup_upscaler = v.upscaler;
     v.startup_object_motion = v.object_motion;
@@ -318,7 +335,8 @@ void Save() {
                  "fsr1=%d\nrcas=%d\nrcas_strength=%d\nframes_queued=%d\n"
                  "render_resolution=%s\nengine_fps=%d\ndeferred_readback=%d\nstale_readback=%d\n"
                  "restart_unconfirmed=%d\n",
-                 Gow3Graphics::DisplayModeKeys[std::clamp(v.display_mode.load(), 0, 2)].data(),
+                 Gow3Graphics::DisplayModeKeys[std::clamp(v.display_mode_forced ? v.display_mode_file
+                                                                                : v.display_mode.load(), 0, 2)].data(),
                  int(v.vsync.load()), v.fps_limit.load(), int(v.async_shaders.load()),
                  int(v.fsr1.load()), int(v.rcas.load()), v.rcas_strength.load(), v.frames_queued.load(),
                  Gow3Graphics::Resolutions[std::clamp(v.render_resolution.load(), 0, 5)].data(),

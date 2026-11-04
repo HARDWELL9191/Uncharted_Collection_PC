@@ -55,8 +55,11 @@ public:
 
     template <typename Func>
     void ForEachItemBelow(TickType tick, Func&& func) {
+        // ucndc: invoke_result_t (the type). invoke_result (the trait struct) is never bool, so the
+        // early exit never happened and every garbage collection pass walked all the old images
+        // after its last deletion (fix from the SotC port, 84fa5e5).
         static constexpr bool RETURNS_BOOL =
-            std::is_same_v<std::invoke_result<Func, ObjectType>, bool>;
+            std::is_same_v<std::invoke_result_t<Func, ObjectType>, bool>;
         Item* iterator = first_item;
         while (iterator) {
             if (static_cast<s64>(tick) - static_cast<s64>(iterator->tick) < 0) {

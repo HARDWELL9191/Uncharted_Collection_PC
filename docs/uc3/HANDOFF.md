@@ -34,7 +34,7 @@ Opções úteis em `-Set`:
 |---|---|
 | `GOW3_READBACKS=2` / `1` | preciso (padrão, cenário certo) / relaxado (cenário e texturas somem, só para medir) |
 | `GOW3_FRAME_STATS=1` | "Frame stats" a cada 5 s, linhas `Stall:` dos quadros > 40 ms, `uc3 draw stats` |
-| `GOW3_FRAME_CAPTURE_KEY=1` | F11 captura o quadro em `user/captures/frame_*.txt` |
+| `GOW3_FRAME_CAPTURE_KEY=1` | F12 captura o quadro em `user/captures/frame_*.txt` |
 | `GOW3_CAPTURE_TRIGGER=<arquivo>` | criar o arquivo dispara uma captura (automação) |
 | `GOW3_FAULT_HOLD=<s>` | depois de um "Fault", segura o processo: `lldb -p PID --batch -o 'thread backtrace all'` |
 | `GOW3_DUMP_SHADERS=1` | SPIR-V em `user/shader/dumps`; validar com `spirv-val --target-env vulkan1.3` |

@@ -80,6 +80,16 @@ Atualizado em 30/10/2026.
 | Uncharted 2 | `big2-ps4_Shipping.elf` | **Jogável**, 51–60 FPS, com saves próprios; ainda com alguns travamentos |
 | Uncharted 3 | `big3-ps4_Shipping.elf` | **100% jogável do início ao fim**, a **60 FPS em 1080p, sem upscaling nem geração de quadros**. Algumas partes ainda precisam de otimização e caem abaixo de 60 (perto de 50 com muita vegetação, no Castelo), sempre acima de 30 FPS. Um único travamento no jogo inteiro, ainda não reproduzido nem corrigido. Problemas conhecidos listados abaixo |
 
+Novo na 0.3.9:
+- Trocar de jogo pelo menu da coletânea funciona: sem tela cinza, e o jogo novo abre com as opções dele.
+- F11 alterna entre janela e tela cheia durante o jogo.
+- O modo janela agora cabe na tela (antes, na resolução nativa, a janela passava da tela e ficava embaixo da barra de tarefas).
+- O menu do port (Insert ou F1) tem um botão "Sair do jogo", para fechar o jogo pelo controle.
+- UC2: o mouse agora gira as metralhadoras montadas.
+- Launcher: novo botão "Relatório". Ele cria um zip em user\ com o log, os 3 logs anteriores e as suas configurações, pronto para anexar num relato de bug. Os últimos 10 logs ficam em user\logs.
+- O log agora começa com o seu Windows, CPU, RAM e driver de vídeo, e anota quando a imagem congela por 7 segundos (o jogo continua rodando).
+- Funciona com o [RecompLauncher](https://github.com/elripalda/RecompLauncher): ele instala, atualiza e abre o port, com as opções na janela dele.
+
 Novo na 0.3.8:
 - UC2: o prólogo do trem funciona a 60 FPS. O Drake corria devagar demais ali, e o vagão caía antes de ele chegar ao pulo. A perseguição no telhado também ficou em 60 FPS.
 - Mirar não borra mais o fundo inteiro em resoluções diferentes de 1080p (UC2 e UC3). O foco automático media um ponto fora da mira, muitas vezes em cima do Drake.

@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import queue
 import runpy
 import shutil
@@ -23,6 +24,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
+import zipfile
 
 WINDOWS = sys.platform == 'win32'
 if WINDOWS:
@@ -36,10 +38,12 @@ INI_FILE = DATA_DIR / 'ucndc.ini'
 OLD_INI_FILE = DATA_DIR / 'gow3.ini'  # name before 0.3; copied once, left in place
 USER_DIR = DATA_DIR / 'user'
 LOG_FILE = USER_DIR / 'last_run.log'
+LOG_DIR = USER_DIR / 'logs'  # the earlier last_run.log files (run-<date>.log), the last KEEP_LOGS
+KEEP_LOGS = 10
 INPUT_FILE = DATA_DIR / 'input.ini'
 APP_NAME = 'Uncharted Collection PC'
 EXE_NAME = 'Uncharted Launcher.exe'
-VERSION = '0.3.8'
+VERSION = '0.3.9'
 RELEASES_API = 'https://api.github.com/repos/zorde23/Uncharted_Collection_PC/releases/latest'
 RELEASES_PAGE = 'https://github.com/zorde23/Uncharted_Collection_PC/releases/latest'
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -60,6 +64,8 @@ COMMON = {
     # The game mixes 7.1 when told the output has 8 channels (sceAudioOutGetPortState); 'auto' tells it
     # so only when the Windows output is 5.1/7.1, and the port passes the channels on (0.3.8, tested 7.1).
     'GOW3_AUDIO_SURROUND': 'auto',
+    # Log aid: after 7 s without a frame on screen, where every thread is (once per freeze; the game keeps running).
+    'GOW3_HANG_WATCH': '7',
 }
 # key, title, executable, (status pt, status en), extra options
 GAMES = [
@@ -96,7 +102,9 @@ GAMES = [
       # 0.3.7: aim focus without whole-screen blur (Umar-Qayyum-dev, Supermedo's uncharted_pc), videos
       # keep updating, texture memory limit from the driver's budget.
       'GOW3_TINY_READBACK': '1', 'GOW3_VIDEO_INVALIDATE': '1', 'GOW3_GC_LIVE_BUDGET': '1',
-      'GOW3_SHADER_WAIT_MS': '50'}),
+      'GOW3_SHADER_WAIT_MS': '50',
+      # 0.3.9: the mounted gun turns with the mouse (tested by Matheus 2026-10-31).
+      'GOW3_MOUSE_U2_GUN': '1'}),
     # uc3 without GOW3_READBACK_SIDEQ: with it Drake's scarf jumps around in the desert (the guest
     # resumes before the graphics work behind a readback runs); no FPS difference measured.
     ('uc3', "Uncharted 3: Drake's Deception", 'big3-ps4_Shipping.elf', ('Jogável · 60 FPS', 'Playable · 60 FPS'),
@@ -193,13 +201,13 @@ FIX_TOGGLES = {'GOW3_MOUSE_AIM_U1_ALL', 'GOW3_SCALAR_COPY_GPU_RANGE', 'GOW3_SYNC
 FPS_LIMITS = [('0', ('Sem limite (60)', 'No limit (60)')), ('30', ('30', '30')), ('60', ('60', '60'))]
 # Fixed per game, never a user switch: UC1 needs LOW_IMAGE, AJM_END_RULES and EOP_TICK_WAIT; READBACKS
 # keeps the scenery; FRAME_STATS, FAULT_WRITES, MOUSE_CAMERA_LOG and CB_WATCH are only log aids; HLE_INVALIDATE follows SCALAR_COPY_HLE (texture swaps).
-FIXED = {'GOW3_READBACKS', 'GOW3_FRAME_STATS', 'GOW3_LOW_IMAGE', 'GOW3_AJM_END_RULES', 'GOW3_EOP_TICK_WAIT',
+FIXED = {'GOW3_READBACKS', 'GOW3_FRAME_STATS', 'GOW3_HANG_WATCH', 'GOW3_LOW_IMAGE', 'GOW3_AJM_END_RULES', 'GOW3_EOP_TICK_WAIT',
          'GOW3_HLE_INVALIDATE', 'GOW3_FAULT_WRITES',
          'GOW3_MOUSE_CAMERA_LOG', 'GOW3_CB_WATCH', 'GOW3_OVERLAP_KEEP_VIEW', 'GOW3_UC1_BIND_RETRY',
          'GOW3_RED_ZONE', 'GOW3_MOUSE_STEADY', 'GOW3_MOUSE_AIM_U1_POST', 'GOW3_MOUSE_U1_LEASH',
          'GOW3_MOUSE_U1_PER_OBJ', 'GOW3_MOUSE_U1_SWAP_SNAP', 'GOW3_MOUSE_U1_AIM_PHASE',
          'GOW3_MOUSE_U1_AIM_SEED_FOLLOW', 'GOW3_MOUSE_U1_FAST_STICK', 'GOW3_MOUSE_U1_HOLD_INPUT',
-         'GOW3_MOUSE_U1_GUN', 'GOW3_MOUSE_U1_CAR', 'GOW3_MOUSE_PUSH'}
+         'GOW3_MOUSE_U1_GUN', 'GOW3_MOUSE_U1_CAR', 'GOW3_MOUSE_PUSH', 'GOW3_MOUSE_U2_GUN'}
 
 # Controls window (input.ini, read by the game: src/runtime_pad.c), ported from SuperMedo's launcher
 # (uncharted_pc, GPL). Actions with their PS4 names, the default keys ("A|B": two bindings) and the
@@ -462,12 +470,14 @@ def write_input_ini(controls):
 
 
 def adopt_menu_controls(settings):
-    """The port menu (Insert or F1 > Controls) changes input.ini while the game runs; the lines that differ
-    from what the launcher wrote last go into launcher.json. True when something changed."""
+    """The port menu (Insert or F1 > Controls) and RecompLauncher's game page change input.ini; the lines
+    that differ from what the launcher wrote last go into launcher.json. True when something changed.
+    Nothing written yet (first start): every line in the file counts, so a choice made in RecompLauncher
+    before the first Play is kept."""
     controls = settings.get('controls')
-    written = (controls or {}).get('written')
-    if not written:
+    if controls is None:
         return False
+    written = controls.setdefault('written', {})
     try:
         text = INPUT_FILE.read_text(encoding='utf-8')
     except OSError:
@@ -574,6 +584,19 @@ def game_environment(settings, key):
     for name, (games, value) in DEBUG.items():
         if key in games and name not in settings.get('disabled', []):
             env[name] = value
+    # --play --on/--off (RecompLauncher's page), over Options > Advanced: on = the value this game is
+    # tested with (an option this game does not use stays off), off = not set.
+    tested = {**COMMON, **extra, **{n: v for n, (g, v) in {**EXPERIMENTAL, **DEBUG}.items() if key in g}}
+    for name in filter(None, os.environ.get('UC_LAUNCHER_ON', '').split(',')):
+        if toggle_name(name) and name in tested:
+            env[name] = tested[name]
+    for name in filter(None, os.environ.get('UC_LAUNCHER_OFF', '').split(',')):
+        if toggle_name(name):
+            env.pop(name, None)
+    # RecompLauncher's Big Picture (controller, TV): full screen for this start when ucndc.ini says window;
+    # borderless stays. GOW3_DISPLAY_MODE is never written to ucndc.ini (gow3_settings.cpp).
+    if os.environ.get('RECOMPLAUNCHER_MODE') == 'bigpicture' and display_mode() == 'windowed':
+        env['GOW3_DISPLAY_MODE'] = 'fullscreen'
     if 'GOW3_SCALAR_COPY_HLE' not in env:
         env.pop('GOW3_HLE_INVALIDATE', None)
     if key in ('uc1', 'uc2', 'uc3'):
@@ -582,10 +605,13 @@ def game_environment(settings, key):
     if settings.get('update_dir'):
         env['GOW3_PATCH_DIR'] = settings['update_dir']
     env['GOW3_EXECUTABLE'] = executable
+    env['GOW3_LAUNCHER_GAME'] = key  # a game switch in the collection menu rebuilds the options (run_role)
     env['GOW3_DATA_DIR'] = str(DATA_DIR)
     env['GOW3_USER_DIR'] = str(USER_DIR)
-    if not settings.get('controls'):  # never saved: the Controls window's defaults (mouse look on)
-        settings['controls'] = {k: (dict(v) if isinstance(v, dict) else v) for k, v in CONTROL_DEFAULTS.items()}
+    # never saved, or only some keys (RecompLauncher writes just controls/icons): the Controls window's
+    # defaults (mouse look on) under what is there
+    settings['controls'] = {**{k: (dict(v) if isinstance(v, dict) else v) for k, v in CONTROL_DEFAULTS.items()},
+                            **(settings.get('controls') or {})}
     try:
         adopt_menu_controls(settings)
         env['GOW3_INPUT_CONFIG'] = str(write_input_ini(settings['controls']))
@@ -632,6 +658,26 @@ def attach_stdio():
         setattr(sys, name, stream or open(os.devnull, 'w'))
 
 
+def switched_game_environment():
+    """The collection menu switches games through LoadExec, which starts --run again with the
+    previous game's environment and only GOW3_EXECUTABLE changed (UC2 opened from UC1 got UC1's
+    options). The new game gets its own options here, as if started from the launcher; the guest
+    arguments (GOW3_GUEST_ARG_*) and test overrides pass through."""
+    global LANG
+    previous = os.environ.get('GOW3_LAUNCHER_GAME')
+    key = next((g[0] for g in GAMES if g[2] == os.environ.get('GOW3_EXECUTABLE')), None)
+    if not previous or not key or key == previous:
+        return
+    settings = load_settings()
+    if not settings.get('game_dir'):
+        return
+    LANG = settings.get('language') or system_language()
+    env = game_environment(settings, key)
+    os.environ.clear()
+    os.environ.update(env)
+    print(f'Launcher: {key} options (switched from {previous} in the game menu)', flush=True)
+
+
 def run_role(argv):
     """--run [args]: run.py; --script <file> [args]: a preparation script. Returns an exit code."""
     attach_stdio()
@@ -645,6 +691,10 @@ def run_role(argv):
     else:
         path = str(PORT_DIR / 'run.py')
         sys.argv = [path, *argv[1:]]
+        try:
+            switched_game_environment()
+        except Exception as error:  # the game still starts, with the previous game's options
+            print(f'Launcher: could not rebuild the options after the game switch: {error}', flush=True)
     try:
         runpy.run_path(path, run_name='__main__')
     except SystemExit as stop:
@@ -654,15 +704,18 @@ def run_role(argv):
 
 class GameJob:
     """A Windows job holding run.py and everything it starts (ucndc.exe, in-game restarts),
-    so closing the launcher's Stop button ends all of it."""
+    so closing the launcher's Stop button ends all of it. kill_on_close: the game also ends when this
+    process is killed (--play from RecompLauncher, whose Stop ends only the program it started)."""
 
-    def __init__(self, process):
+    def __init__(self, process, kill_on_close=False):
         self.handle = None
         if not WINDOWS:
             return
         kernel32 = ctypes.windll.kernel32
         kernel32.CreateJobObjectW.restype = ctypes.c_void_p
         self.handle = kernel32.CreateJobObjectW(None, None)
+        if self.handle and kill_on_close:
+            set_kill_on_close(self.handle)
         if self.handle:
             kernel32.AssignProcessToJobObject(ctypes.c_void_p(self.handle), ctypes.c_void_p(int(process._handle)))
 
@@ -674,6 +727,120 @@ class GameJob:
         if self.handle:
             ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(self.handle))
             self.handle = None
+
+
+def set_kill_on_close(handle):
+    """JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Windows ends the job's processes when its last handle closes,
+    which also happens when this process is killed."""
+    from ctypes import wintypes
+
+    class Basic(ctypes.Structure):
+        _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                    ('LimitFlags', wintypes.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                    ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', wintypes.DWORD),
+                    ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD),
+                    ('SchedulingClass', wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [('BasicLimitInformation', Basic), ('IoInfo', ctypes.c_uint64 * 6),
+                    ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                    ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+    info = Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ctypes.windll.kernel32.SetInformationJobObject(ctypes.c_void_p(handle), 9,  # JobObjectExtendedLimitInformation
+                                                   ctypes.byref(info), ctypes.sizeof(info))
+
+
+def system_summary():
+    """Windows version, CPU and RAM, for the head of the game log (the game prints the GPU itself)."""
+    lines = [f'System: {platform.platform()}', f'CPU: {platform.processor() or "?"} ({os.cpu_count()} threads)']
+    if WINDOWS:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'HARDWARE\DESCRIPTION\System\CentralProcessor\0') as cpu:
+                lines[1] = f'CPU: {winreg.QueryValueEx(cpu, "ProcessorNameString")[0].strip()} ({os.cpu_count()} threads)'
+        except OSError:
+            pass
+        try:
+            class Status(ctypes.Structure):
+                _fields_ = [('length', ctypes.c_uint32), ('load', ctypes.c_uint32), ('total', ctypes.c_uint64),
+                            ('free', ctypes.c_uint64), ('rest', ctypes.c_uint64 * 5)]
+            status = Status(length=ctypes.sizeof(Status))
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                lines.append(f'RAM: {status.total / 2**30:.1f} GB ({status.free / 2**30:.1f} GB free)')
+        except (AttributeError, OSError):
+            pass
+    return lines
+
+
+def report_header(settings, key, how):
+    """The first lines of last_run.log: what a bug report needs besides the game's own lines (version,
+    PC, dump, launcher choices, ucndc.ini). RecompLauncher sends this file with its crash report."""
+    title = next((t for k, t, *_r in GAMES if k == key), key)
+    game = settings.get('game_dir') or ''
+    lines = [f'=== {APP_NAME} {VERSION}: {title} ({key}) ===',
+             f'Started: {time.strftime("%Y-%m-%d %H:%M:%S")} from {how}', *system_summary(),
+             f'Game: {title_id(game) or "?"} {app_version(game) or "?"} at {game or "?"}'
+             + (f' + update {settings["update_dir"]}' if settings.get('update_dir') else ''),
+             f'Resolution: {settings.get("resolution", "1080")}']
+    if settings.get('disabled'):
+        lines.append('Options turned off: ' + ', '.join(settings['disabled']))
+    if settings.get('experimental'):
+        lines.append('Experimental on: ' + ', '.join(settings['experimental']))
+    try:
+        ini = [line.strip() for line in INI_FILE.read_text(encoding='utf-8', errors='replace').splitlines()
+               if line.strip() and not line.lstrip().startswith((';', '#'))]
+        lines.append('ucndc.ini: ' + ', '.join(ini))
+    except OSError:
+        pass
+    return '\n'.join(lines + ['=' * 40, ''])
+
+
+def open_game_log(settings, key, how):
+    """last_run.log for a new start, the report header written first. The previous one moves to
+    user\\logs\\run-<date>.log (the last KEEP_LOGS stay), so the log of a run with a bug survives the
+    next start. last_run.log stays the newest .log in user\\, the one RecompLauncher sends."""
+    try:
+        if LOG_FILE.is_file() and LOG_FILE.stat().st_size:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime('%Y%m%d-%H%M%S', time.localtime(LOG_FILE.stat().st_mtime))
+            target, n = LOG_DIR / f'run-{stamp}.log', 1
+            while target.exists():
+                n += 1
+                target = LOG_DIR / f'run-{stamp}-{n}.log'
+            os.replace(LOG_FILE, target)
+            for old in sorted(LOG_DIR.glob('run-*.log'))[:-KEEP_LOGS]:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+    log = open(LOG_FILE, 'w', encoding='utf-8', buffering=1)
+    try:
+        log.write(report_header(settings, key, how))
+    except Exception as error:  # the game starts anyway
+        log.write(f'(report header failed: {error})\n')
+    return log
+
+
+def make_report():
+    """user\\report-<date>.zip: last_run.log, the earlier logs, ucndc.ini, launcher.json and input.ini,
+    one file to attach to a GitHub issue. Returns its path."""
+    USER_DIR.mkdir(parents=True, exist_ok=True)
+    target = USER_DIR / f'report-{time.strftime("%Y%m%d-%H%M%S")}.zip'
+    files = [LOG_FILE, *sorted(LOG_DIR.glob('run-*.log'))[-3:], INI_FILE, SETTINGS_FILE, INPUT_FILE]
+    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as report:
+        for path in files:
+            if path.is_file():
+                report.write(path, path.relative_to(USER_DIR) if path.is_relative_to(USER_DIR) else path.name)
+        report.writestr('system.txt', '\n'.join(system_summary()) + f'\nLauncher {VERSION}\n')
+    return target
+
+
+def show_in_folder(path):
+    if WINDOWS:
+        subprocess.Popen(['explorer', '/select,', str(path)])
+    else:
+        open_path(Path(path).parent)
 
 
 def start_game(settings, key):
@@ -688,10 +855,123 @@ def play_without_window(settings, key):
     """--play uc3: a desktop shortcut starts the game directly; the log goes to user\\last_run.log."""
     attach_stdio()
     process = start_game(settings, key)
-    with open(LOG_FILE, 'w', encoding='utf-8', buffering=1) as log:
-        for raw in iter(process.stdout.readline, b''):
-            log.write(raw.decode('utf-8', errors='replace'))
-    return process.wait()
+    job = GameJob(process, kill_on_close=True)
+    how = (f'RecompLauncher ({os.environ.get("RECOMPLAUNCHER_MODE") or "desktop"})' if os.environ.get('RECOMPLAUNCHER')
+           else 'a shortcut (--play)')
+    try:
+        with open_game_log(settings, key, how) as log:
+            for raw in iter(process.stdout.readline, b''):
+                log.write(raw.decode('utf-8', errors='replace'))
+        return process.wait()
+    finally:
+        job.close()
+
+
+# --play control words: launcher.json 'controls' key, kind ('bool' 0/1, 'float' 0.1-5, or the allowed values)
+PLAY_CONTROLS = {'--mouse-look': ('mouse_look', 'bool'), '--mouse-sensitivity': ('mouse_sensitivity', 'float'),
+                 '--aim-sensitivity': ('mouse_aim_sensitivity', 'float'), '--invert-y': ('mouse_invert_y', 'bool'),
+                 '--pad-invert-y': ('pad_invert_y', 'bool'), '--vibration': ('vibration', 'bool'),
+                 '--icons': ('icons', ICON_STYLES + ('auto',))}
+
+
+def toggle_name(word):
+    """UC_X or GOW3_X -> GOW3_X when it is an option the player may switch (Options > Advanced), else None."""
+    name = 'GOW3_' + word[3:] if word.startswith('UC_') else word
+    return name if name in TOGGLE_HELP and name not in FIXED else None
+
+
+def play_arguments(args):
+    """The words after --play, in any order: a game key (uc1, uc2, uc3), --game <dump folder>,
+    --update <update folder>, --resolution <720|900|1080|1440|2160>, --on/--off <option> (Options >
+    Advanced, for this start only), and the Controls window's values (PLAY_CONTROLS, saved like the
+    window saves them). RecompLauncher passes the folder it checked as --game and the choices the
+    player made on its page. Returns a dict, or None when something is not understood."""
+    keys = {g[0] for g in GAMES}
+    request = {'key': '', 'game': '', 'update': '', 'resolution': '', 'on': [], 'off': [], 'controls': {},
+               'window': False}
+    words = list(args)
+    while words:
+        word = words.pop(0)
+        if word in keys:
+            request['key'] = word
+            continue
+        if word == '--window':  # RecompLauncher's "Port launcher" choice: the window, with the folder it checked
+            request['window'] = True
+            continue
+        if not words:
+            return None
+        value = words.pop(0)
+        if word in ('--game', '--update'):
+            request[word[2:]] = value
+        elif word == '--resolution' and value in {r for r, _n in RESOLUTIONS}:
+            request['resolution'] = value
+        elif word in ('--on', '--off') and toggle_name(value):
+            request[word[2:]].append(toggle_name(value))
+        elif word in PLAY_CONTROLS:
+            name, kind = PLAY_CONTROLS[word]
+            if kind == 'bool' and value in ('0', '1'):
+                request['controls'][name] = value == '1'
+            elif kind == 'float':
+                try:
+                    request['controls'][name] = round(min(5.0, max(0.1, float(value))), 2)
+                except ValueError:
+                    return None
+            elif isinstance(kind, tuple) and value in kind:
+                request['controls'][name] = value
+            else:
+                return None
+        else:
+            return None
+    return request
+
+
+def apply_play_request(settings, request):
+    """What --play was given: the folder and resolution and controls go into launcher.json (the window
+    shows them too); --on/--off go to the game's environment as UC_LAUNCHER_ON/OFF, so a game switch
+    in the collection menu keeps them (switched_game_environment passes the environment on)."""
+    update = request['update']
+    if not update and is_update(PORT_DIR / 'update'):
+        update = str(PORT_DIR / 'update')  # RecompLauncher puts the update folder the player picked here (game.update)
+    if request['game']:
+        use_game_folder(settings, request['game'], update)
+    if request['resolution']:
+        settings['resolution'] = request['resolution']
+    controls = request['controls']
+    if controls:
+        if controls.get('icons') == 'auto':  # the controller RecompLauncher sees
+            controls['icons'] = 'xbox' if os.environ.get('RECOMPLAUNCHER_PAD') == 'xbox' else 'ps'
+        if not settings.get('controls'):
+            settings['controls'] = {k: (dict(v) if isinstance(v, dict) else v) for k, v in CONTROL_DEFAULTS.items()}
+        settings['controls'].update(controls)
+        save_settings(settings)
+    os.environ['UC_LAUNCHER_ON'] = ','.join(request['on'])
+    os.environ['UC_LAUNCHER_OFF'] = ','.join(request['off'])
+
+
+def use_game_folder(settings, folder, update=''):
+    """--play --game: the same choice as the launcher's "pick game folder" (an update folder picked by
+    mistake finds its base game; a merged dump needs no update), saved in launcher.json so the launcher
+    window and the game switch in the collection menu use it too."""
+    folder = inner_dump(str(Path(folder)).replace('\\', '/'))
+    if is_update(folder):
+        base = guess_game(folder)
+        if base or not has_games(folder) or not has_base_data(folder):
+            update, folder = update or folder, inner_dump(base) if base else ''
+    if not folder or not has_games(folder):
+        return False
+    if folder != settings.get('game_dir'):
+        settings['update_dir'] = ''  # the old update went with the old dump
+    settings['game_dir'] = folder
+    if update:
+        settings['update_dir'] = str(Path(update)).replace('\\', '/')
+    elif is_update(folder) or has_update_merged(folder):
+        settings['update_dir'] = ''
+    elif not settings.get('update_dir'):
+        # a CUSA02344\\CUSA02344 dump: the update sits next to the outer folder
+        outer = Path(folder).parent
+        settings['update_dir'] = guess_update(folder) or (guess_update(outer) if outer.name == Path(folder).name else '')
+    save_settings(settings)
+    return True
 
 
 def make_shortcut(key, title):
@@ -996,6 +1276,7 @@ class Launcher:
                               (_('Controles', 'Controls'), self.controls),
                               (_('Pasta de saves', 'Saves folder'), lambda: open_path(USER_DIR)),
                               (_('Log', 'Log'), self.toggle_log),
+                              (_('Relatório', 'Report'), self.report),
                               (_('Atalho na área de trabalho', 'Desktop shortcut'), self.shortcut)):
             self.button(bar, text, command).pack(side='left', padx=(0, 6))
         self.stop_button = self.button(bar, _('Parar o jogo', 'Stop the game'), self.stop)
@@ -1525,6 +1806,17 @@ class Launcher:
         else:
             self.log_frame.pack_forget()
 
+    def report(self):
+        try:
+            path = make_report()
+        except OSError as error:
+            self.status.configure(text=_(f'Não foi possível criar o relatório: {error}',
+                                         f'Could not make the report: {error}'), fg=BAD)
+            return
+        self.status.configure(text=_(f'Relatório salvo em {path}. Anexe esse zip ao relatar o problema no GitHub.',
+                                     f'Report saved to {path}. Attach that zip when you report the problem on GitHub.'), fg=OK)
+        show_in_folder(path)
+
     def shortcut(self):
         key = self.settings.get('last_game', 'uc3')
         title = next(t for k, t, *_r in GAMES if k == key)
@@ -1547,7 +1839,7 @@ class Launcher:
             self.status.configure(text=_(f'Não foi possível iniciar: {error}', f'Could not start: {error}'), fg=BAD)
             return
         self.job = GameJob(self.process)
-        self.log_file = open(LOG_FILE, 'w', encoding='utf-8', buffering=1)
+        self.log_file = open_game_log(self.settings, key, 'the launcher window')
         threading.Thread(target=self.read_output, args=(self.process,), daemon=True).start()
         self.status.configure(text=_('Preparando o jogo… ele abre na própria janela. Na primeira vez demora mais '
                                      'e pode engasgar enquanto os shaders são criados.',
@@ -1569,8 +1861,8 @@ class Launcher:
                     continue
                 self.log_file.write(item)
                 if 'Entering original x86-64 code' in item:
-                    self.status.configure(text=_('Jogo rodando. Insert ou F1 (ou L2+R2+L3+R3) abre o menu do port.',
-                                                 'Game running. Insert or F1 (or L2+R2+L3+R3) opens the port menu.'), fg=OK)
+                    self.status.configure(text=_('Jogo rodando. Insert ou F1 (ou L2+R2+L3+R3) abre o menu do port; F11 alterna janela e tela cheia.',
+                                                 'Game running. Insert or F1 (or L2+R2+L3+R3) opens the port menu; F11 switches window and full screen.'), fg=OK)
                 self.append(item)
         except queue.Empty:
             pass
@@ -1584,9 +1876,9 @@ class Launcher:
         self.log_file.close()
         if code:
             self.status.configure(text=_(f'O jogo fechou com erro (código {code}). Veja o Log; '
-                                         'ao relatar, envie user\\last_run.log.',
+                                         'para relatar, use o botão Relatório e anexe o zip.',
                                          f'The game closed with an error (code {code}). See the Log; '
-                                         'when reporting, send user\\last_run.log.'), fg=BAD)
+                                         'to report it, use the Report button and attach the zip.'), fg=BAD)
             if not self.log_visible:
                 self.toggle_log()
         else:
@@ -1626,10 +1918,20 @@ def main():
     args = sys.argv[1:]
     if args and args[0] in ('--run', '--script'):
         sys.exit(run_role(args))
+    if args == ['--report']:  # the same zip as the Report button, shown in Explorer
+        show_in_folder(make_report())
+        sys.exit(0)
     settings = load_settings()
     LANG = settings.get('language') or system_language()
-    if args[:1] == ['--play'] and len(args) == 2 and settings['game_dir'] and args[1] in {g[0] for g in GAMES}:
-        sys.exit(play_without_window(settings, args[1]))
+    # --play ...; a bare game key too (RecompLauncher gives only the settings' words when it has no folder to pass)
+    request = (play_arguments(args[1:]) if args[:1] == ['--play']
+               else play_arguments(args) if args[:1] and args[0] in {g[0] for g in GAMES} else None)
+    if request:
+        apply_play_request(settings, request)
+        key = request['key'] or settings.get('last_game') or 'uc3'
+        if not request['window'] and settings['game_dir'] and available(settings, next(g[2] for g in GAMES if g[0] == key)):
+            sys.exit(play_without_window(settings, key))
+        # no usable game folder: the window opens, to pick one
     if WINDOWS:
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)

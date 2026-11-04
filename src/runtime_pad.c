@@ -1347,6 +1347,16 @@ static int aim_post, aim_post_u1, aim_post_match, aim_post_written_ok, aim_post_
 static uint64_t aim_post_camera;
 static uint64_t u1_aim_cam; /* U1's aiming camera, from its last update */
 static float aim_post_heading, aim_post_pitch, aim_post_written, aim_post_written_pitch, aim_post_gap, aim_post_dx, aim_post_dy;
+/* GOW3_MOUSE_U2_GUN=1 (test, off by default; 2026-10-31 census): U2's mounted gun is the aiming camera
+ * running with the aim button up and no follow camera (as in U1). The mouse turns it there as while
+ * aiming (the same kept check: should the game not keep the turns, the mouse goes to the stick). */
+static int u2_gun_on(void) {
+    static int on=-1;
+    if (on<0) { const char *v=getenv("GOW3_MOUSE_U2_GUN"); on=v && v[0]=='1'; if (on) printf("Mouse: U2 mounted gun turns with the mouse (GOW3_MOUSE_U2_GUN)\n"); }
+    return on;
+}
+static int aim_gun_caller;           /* the caller of aim_camera is U2's aiming camera */
+static volatile uint64_t u2_gun_us;  /* the last U2 mounted gun frame the mouse turned */
 static float aim_camera(uint64_t camera, size_t dir_at, size_t copy_at, size_t copy2_at, const size_t *more, int n_more,
                         uint64_t settle_us) {
     if (!aim_enabled() || aim_off || !camera) return 0.0f;
@@ -1474,7 +1484,12 @@ static float aim_camera(uint64_t camera, size_t dir_at, size_t copy_at, size_t c
         aim_direct=direct;
         aim_pending=0;
     }
-    if (!aim_held) return 0.0f;
+    const int gun=!aim_held && aim_gun_caller && u2_gun_on() && !(camera_hook_us && (int64_t)(aim_hook_us-camera_hook_us)<100000);
+    if (!aim_held && !gun) return 0.0f;
+    if (gun) {
+        if (!u2_gun_us || aim_hook_us-u2_gun_us>250000) printf("Mouse: U2 gun mode starts t=%.4f camera %#llx (direct %d)\n",aim_hook_us*1e-6,(unsigned long long)camera,(int)aim_direct);
+        u2_gun_us=aim_hook_us;
+    }
     float turn=dx*MOUSE_DEGREES_PER_PIXEL*mouse_sensitivity();
     float pitch=(mouse_cfg.invert_y ? dy : -dy)*MOUSE_DEGREES_PER_PIXEL*mouse_sensitivity();
     if (!aim_direct) { if (turn!=0.0f) turn=turn>0.0f ? 0.5f : -0.5f; pitch=0.0f; } /* a probe turn */
@@ -1881,7 +1896,9 @@ static void __attribute__((ms_abi)) u1_aim_post_f(uint64_t rdi, uint64_t rsi, ui
 static void __attribute__((ms_abi)) u2_aim_camera(uint64_t camera, uint64_t rsi, uint64_t image, uint64_t r14) {
     (void)image; (void)r14;
     if (discover_on()) discover_call(15,camera,rsi);
+    aim_gun_caller=1;
     aim_camera(camera,0x1f30,0xdc0,0xd90,NULL,0,0);
+    aim_gun_caller=0;
 }
 static void __attribute__((ms_abi)) u2_aim_camera_100(uint64_t camera, uint64_t rsi, uint64_t image, uint64_t r14) {
     (void)image; (void)r14;
@@ -2594,6 +2611,118 @@ static const RuntimeGuestCallback u1_census_callbacks[]={
     {"U1 camera census 0x748ec0 (1.02)","55 48 89 e5 41 57 41 56 53 48 83 ec 48 48 89 f3 49 89 fe 4c 8b 3d 76",6,u1_census_15,NULL,0,0},
     {"U1 camera census 0x34fe80 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec 98 02 00 00 48 89 f3",6,u1_census_16,NULL,0,0},
 };
+/* GOW3_MOUSE_U2_CENSUS=1 (diagnostics, UC2 1.02): the same census for UC2 (mounted guns have no mouse
+ * hook there). Hooks the update of every other U2 camera class found from the relocations (vtables
+ * sharing the camera base methods at +0, +8 and +0xf0): the e0 slot of the control cameras and the e8
+ * slot of the follow-derived ones (0x41ab60 and 0x41b4b0 set a flag and jump to 0x42f150, hooked).
+ * Same log ("Mouse U2 cameras: ...") and dump (GOW3_MOUSE_U2_CENSUS_FILE, default mouse_u2_census.bin,
+ * records "U2CS"). */
+#define U2_CENSUS_FUNCTIONS 22
+static const uint64_t u2_census_fn[U2_CENSUS_FUNCTIONS]={0x409c50, 0x40aef0, 0x40c3b0, 0x40fd10, 0x4110a0, 0x413920, 0x41cd00, 0x422000, 0x422b70, 0x432450, 0x4383d0, 0x4426d0, 0x443c10, 0x444460, 0x4496b0, 0x488b20, 0x9e74c0, 0x42f150, 0x409110, 0x419c30, 0x41f6e0, 0x44bb40};
+static void u2_census_call(int f, uint64_t rdi, uint64_t rsi) {
+    static struct { uint64_t calls, unhooked, last_dump_us; unsigned dumps; int seen; } c[U2_CENSUS_FUNCTIONS];
+    static uint64_t second_us, unhooked_us;
+    static FILE *out;
+    static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+    const uint64_t now=now_us();
+    const int unhooked=!(camera_hook_us && now-camera_hook_us<100000) && !(aim_hook_us && now-aim_hook_us<100000) &&
+                       !(cover_hook_us && now-cover_hook_us<100000);
+    pthread_mutex_lock(&lock);
+    if (!c[f].seen) {
+        c[f].seen=1;
+        printf("Mouse U2 cameras: new update %#llx (camera %#llx)%s\n",(unsigned long long)u2_census_fn[f],(unsigned long long)rsi,unhooked ? " unhooked" : "");
+    }
+    ++c[f].calls;
+    if (unhooked) { ++c[f].unhooked; unhooked_us=now; }
+    if (!second_us) second_us=now;
+    if (now-second_us>=1000000) {
+        if (now-unhooked_us<1000000) {
+            char line[1024];
+            int n=snprintf(line,sizeof(line),"Mouse U2 cameras: aim=%d follow=%d aim hook=%d cover=%d:",aim_held,camera_hook_us && now-camera_hook_us<100000,
+                           aim_hook_us && now-aim_hook_us<100000,cover_hook_us && now-cover_hook_us<100000);
+            for (int i=0;i<U2_CENSUS_FUNCTIONS && n<(int)sizeof(line)-48;++i)
+                if (c[i].calls) n+=snprintf(line+n,sizeof(line)-n," %#llx %llu/%llu",(unsigned long long)u2_census_fn[i],(unsigned long long)c[i].calls,(unsigned long long)c[i].unhooked);
+            puts(line);
+        }
+        for (int i=0;i<U2_CENSUS_FUNCTIONS;++i) c[i].calls=c[i].unhooked=0;
+        second_us=now;
+    }
+    if (unhooked && rsi>=0x10000 && c[f].dumps<600 && now-c[f].last_dump_us>=50000) {
+        if (!out) {
+            const char *path=getenv("GOW3_MOUSE_U2_CENSUS_FILE");
+            out=fopen(path && *path ? path : "mouse_u2_census.bin","wb");
+        }
+        const uint64_t at[2]={rsi,rdi};
+        const uint32_t want[2]={0x2000,0x200};
+        for (int k=0;k<2 && out;++k) {
+            uint32_t size=at[k]>=0x10000 ? want[k] : 0;
+#ifdef _WIN32
+            MEMORY_BASIC_INFORMATION info;
+            if (!size || !VirtualQuery((void *)(uintptr_t)at[k],&info,sizeof(info)) || info.State!=MEM_COMMIT ||
+                (info.Protect & (PAGE_NOACCESS|PAGE_GUARD))) size=0;
+            else if (at[k]+size>(uint64_t)(uintptr_t)info.BaseAddress+info.RegionSize) size=(uint32_t)((uint64_t)(uintptr_t)info.BaseAddress+info.RegionSize-at[k]);
+#endif
+            if (!size) continue;
+            uint8_t right[2]={128,128};
+            if (u1_right_us && now-u1_right_us<100000)
+                for (int i=0;i<2;++i) { const float v=128.0f+u1_right[i]*127.5f; right[i]=(uint8_t)(v<0.0f ? 0.0f : v>255.0f ? 255.0f : v); }
+            const uint32_t head[2]={0x53433255u,(uint32_t)(f|k<<6)|(uint32_t)aim_held<<8|(uint32_t)right[0]<<16|(uint32_t)right[1]<<24};
+            fwrite(head,4,2,out); fwrite(&now,8,1,out); fwrite(&at[k],8,1,out); fwrite(&size,4,1,out);
+            fwrite((const void *)(uintptr_t)at[k],1,size,out);
+        }
+        if (out) fflush(out);
+        c[f].last_dump_us=now;
+        if (++c[f].dumps==600) printf("Mouse U2 cameras: %#llx dumps done\n",(unsigned long long)u2_census_fn[f]);
+    }
+    pthread_mutex_unlock(&lock);
+}
+#define U2_CENSUS_CALLBACK(name,f) static void __attribute__((ms_abi)) name(uint64_t rdi, uint64_t rsi, uint64_t image, uint64_t r14) { (void)image; (void)r14; u2_census_call(f,rdi,rsi); }
+U2_CENSUS_CALLBACK(u2_census_0,0)
+U2_CENSUS_CALLBACK(u2_census_1,1)
+U2_CENSUS_CALLBACK(u2_census_2,2)
+U2_CENSUS_CALLBACK(u2_census_3,3)
+U2_CENSUS_CALLBACK(u2_census_4,4)
+U2_CENSUS_CALLBACK(u2_census_5,5)
+U2_CENSUS_CALLBACK(u2_census_6,6)
+U2_CENSUS_CALLBACK(u2_census_7,7)
+U2_CENSUS_CALLBACK(u2_census_8,8)
+U2_CENSUS_CALLBACK(u2_census_9,9)
+U2_CENSUS_CALLBACK(u2_census_10,10)
+U2_CENSUS_CALLBACK(u2_census_11,11)
+U2_CENSUS_CALLBACK(u2_census_12,12)
+U2_CENSUS_CALLBACK(u2_census_13,13)
+U2_CENSUS_CALLBACK(u2_census_14,14)
+U2_CENSUS_CALLBACK(u2_census_15,15)
+U2_CENSUS_CALLBACK(u2_census_16,16)
+U2_CENSUS_CALLBACK(u2_census_17,17)
+U2_CENSUS_CALLBACK(u2_census_18,18)
+U2_CENSUS_CALLBACK(u2_census_19,19)
+U2_CENSUS_CALLBACK(u2_census_20,20)
+U2_CENSUS_CALLBACK(u2_census_21,21)
+static const RuntimeGuestCallback u2_census_callbacks[]={
+    {"U2 camera census 0x409c50 (1.02)","55 48 89 e5 41 56 53 48 81 ec 90 00 00 00 48 89 fb 4c 8b 35 98 0f",6,u2_census_0,NULL,0,0},
+    {"U2 camera census 0x40aef0 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec 78 01 00 00 49 89 d7",6,u2_census_1,NULL,0,0},
+    {"U2 camera census 0x40c3b0 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec f8 00 00 00 48 89 d3 49 89 f6",6,u2_census_2,NULL,0,0},
+    {"U2 camera census 0x40fd10 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec 28 01 00 00 49 89 d7 48 89 f3 49 89 fe 48",6,u2_census_3,NULL,0,0},
+    {"U2 camera census 0x4110a0 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 e4 e0 ff ff ff 48 81 ec a0 02 00 00 48 89 f3",6,u2_census_4,NULL,0,0},
+    {"U2 camera census 0x413920 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 e4 e0 ff ff ff 48 81 ec 80 02 00 00 49 89 f7 48 89 fb",6,u2_census_5,NULL,0,0},
+    {"U2 camera census 0x41cd00 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec c8 00 00 00 48 89 d3 49 89 f6 49",6,u2_census_6,NULL,0,0},
+    {"U2 camera census 0x422000 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec f8 00 00 00 49 89 d7 49",6,u2_census_7,NULL,0,0},
+    {"U2 camera census 0x422b70 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec b8 00 00 00 49 89 f4 49 89 fe 4c 8b 3d 6f",6,u2_census_8,NULL,0,0},
+    {"U2 camera census 0x432450 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec c8 01 00 00 49 89 d6 49",6,u2_census_9,NULL,0,0},
+    {"U2 camera census 0x4383d0 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec f8 01 00 00 49 89 d7 48",6,u2_census_10,NULL,0,0},
+    {"U2 camera census 0x4426d0 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec 68 02 00 00 48 89 f3",6,u2_census_11,NULL,0,0},
+    {"U2 camera census 0x443c10 (1.02)","55 48 89 e5 41 57 41 56 41 54 53 48 83 ec 60 48 89 d3 49 89 f6 49 89 ff 4c 8b 25 d1",6,u2_census_12,NULL,0,0},
+    {"U2 camera census 0x444460 (1.02)","55 48 89 e5 41 57 41 56 53 48 83 ec 58 48 89 f3 49 89 fe 4c 8b 3d 86",6,u2_census_13,NULL,0,0},
+    {"U2 camera census 0x4496b0 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec 88 01 00 00 49 89 d7 49 89 f4",6,u2_census_14,NULL,0,0},
+    {"U2 camera census 0x488b20 (1.02)","48 8b 86 78 01 00 00 c5 f8 28 40 10 c5 f8 29 07",7,u2_census_15,NULL,0,0},
+    {"U2 camera census 0x9e74c0 (1.02)","55 48 89 e5 41 57 41 56 53 48 83 ec 68 48 89 f3 49 89 fe 4c 8b 3d 26 37",6,u2_census_16,NULL,0,0},
+    {"U2 camera census 0x42f150 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec b8 01 00 00 48 89 fb",6,u2_census_17,NULL,0,0},
+    {"U2 camera census 0x409110 (1.02)","55 48 89 e5 41 57 41 56 53 48 83 ec 78 49 89 f6 48 89 fb 48 8b",6,u2_census_18,NULL,0,0},
+    {"U2 camera census 0x419c30 (1.02)","55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 ec 78 49 89 f6 48 89 fb 4c 8b 25 b2",6,u2_census_19,NULL,0,0},
+    {"U2 camera census 0x41f6e0 (1.02)","55 48 89 e5 41 57 41 56 53 48 83 ec 38 49 89 f6 48 89 fb 4c 8b 3d 06 b5",6,u2_census_20,NULL,0,0},
+    {"U2 camera census 0x44bb40 (1.02)","55 48 89 e5 41 57 41 56 41 54 53 49 89 d6 49 89 f7 48 89 fb bf",6,u2_census_21,NULL,0,0},
+};
 /* GOW3_MOUSE_U1_CALL98 (probe.c): one line per new (call site, called function) pair, image offsets */
 void __attribute__((ms_abi)) runtime_call98_seen(uint64_t rdi, uint64_t rsi, uint64_t site, uint64_t target) {
     static volatile uint64_t keys[4096];
@@ -2688,7 +2817,8 @@ static void __attribute__((ms_abi)) u1_camera_manager(uint64_t rdi, uint64_t rsi
 }
 const RuntimeGuestCallback *runtime_guest_callbacks(size_t *count) {
     static RuntimeGuestCallback all[sizeof(guest_callbacks)/sizeof(*guest_callbacks)+sizeof(discover_callbacks)/sizeof(*discover_callbacks)+1+
-                                    sizeof(u1_census_callbacks)/sizeof(*u1_census_callbacks)+1];
+                                    sizeof(u1_census_callbacks)/sizeof(*u1_census_callbacks)+1+
+                                    sizeof(u2_census_callbacks)/sizeof(*u2_census_callbacks)];
     size_t n=0;
     for (size_t i=0;i<sizeof(guest_callbacks)/sizeof(*guest_callbacks);++i)
         all[n++]=guest_callbacks[i];
@@ -2701,6 +2831,9 @@ const RuntimeGuestCallback *runtime_guest_callbacks(size_t *count) {
     if (u1_census && u1_census[0]=='1')
         for (size_t i=0;i<sizeof(u1_census_callbacks)/sizeof(*u1_census_callbacks);++i) all[n++]=u1_census_callbacks[i];
     else if (u1_car_on()) all[n++]=u1_car_hook;
+    const char *u2_census=getenv("GOW3_MOUSE_U2_CENSUS");
+    if (u2_census && u2_census[0]=='1')
+        for (size_t i=0;i<sizeof(u2_census_callbacks)/sizeof(*u2_census_callbacks);++i) all[n++]=u2_census_callbacks[i];
     *count=n;
     return all;
 }
@@ -2852,7 +2985,8 @@ static void sample_host(PadData *d) {
                    ms_edge,(int)edge_direct);
         }
     }
-    const int aim_turns=(aim_held && aiming && aim_direct) || (!aim_held && covering && cover_direct) || (edging && edge_direct) || car;
+    const int gun=!aim_held && aiming && u2_gun_us && now-u2_gun_us<100000; /* GOW3_MOUSE_U2_GUN */
+    const int aim_turns=((aim_held || gun) && aiming && aim_direct) || (!aim_held && covering && cover_direct) || (edging && edge_direct) || car;
     const int direct_x=joypad || aim_turns || (following && (!aim_held || aim_gap) && follow_direct);
     const int direct_y=joypad || aim_turns || (following && (!aim_held || aim_gap) && follow_direct && follow_has_arc);
     /* Mouse look as a stick: the mouse's speed, smoothed over 12 ms (reports arrive in bursts), as

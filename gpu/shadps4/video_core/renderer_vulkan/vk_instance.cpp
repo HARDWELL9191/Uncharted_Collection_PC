@@ -828,6 +828,8 @@ void Instance::CollectDeviceParameters() {
     const std::string driver_version = GetDriverVersionName();
     const std::string driver_name = fmt::format("{} {}", vendor_name, driver_version);
     const std::string api_version = GetReadableVersion(properties.apiVersion);
+    // gow3: always in last_run.log; "Device lost" reports are often old drivers (issue 29).
+    std::printf("GPU: driver %s, Vulkan %s\n", driver_name.c_str(), api_version.c_str());
     const std::string extensions = fmt::format("{}", fmt::join(available_extensions, ", "));
 
     LOG_INFO(Render_Vulkan, "GPU_Vendor: {}", vendor_name);
