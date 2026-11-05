@@ -5,15 +5,21 @@
 Runs the games of **Uncharted: The Nathan Drake Collection** (PS4, Bluepoint, 2015) on Windows 10
 and 11. It is not a source port and not a classic emulator: the original PS4 executable runs
 directly on the PC's CPU, on top of a compatibility layer that replaces the PS4 system and
-translates its graphics to Vulkan (see [How it works](#how-it-works)). The focus is **Uncharted 3: Drake's Deception**, playable from start to end at 60 FPS in 1080p with no upscaling or frame generation;
-Uncharted 2 and Uncharted 1 are playable, still with some crashes.
+translates its graphics to Vulkan (see [How it works](#how-it-works)). The focus is **Uncharted 3: Drake's Deception**. Uncharted 1 and Uncharted 3 are **100% playable from start to end** at 60 FPS in 1080p with no upscaling or frame generation;
+Uncharted 2 is playable but not yet tested to the end.
 
 > **No game files are included.** You need a dump from your own PS4
-> (tested: **CUSA02344**, version 01.00 with the **01.02** update).
+> (tested: **CUSA02344** and **CUSA02320**, with the **1.02** update).
 > This project is not affiliated with Sony Interactive Entertainment, Naughty Dog or Bluepoint
 > Games. Uncharted is a trademark of Sony Interactive Entertainment.
 
 ## Download and play
+
+[![Get it on RecompLauncher](https://recomplauncher.com/assets/press/launcher/badge-dark.svg)](https://recomplauncher.com/game/uncharted-collection-pc)
+
+**Recommended:** use [RecompLauncher](https://github.com/elripalda/RecompLauncher). It installs, updates and starts the port, with the options in its own window. If you'd rather not, follow the steps below.
+
+**Game versions:** tested with CUSA02344 and CUSA02320. Other versions of the collection should work just as well, as long as they have the 1.02 update. Version 1.00 (no update) runs, but has several bugs that are already fixed with 1.02.
 
 No install and no terminal needed:
 
@@ -74,13 +80,13 @@ Uncharted 1 came later almost for free, and the goal is now the whole trilogy.
 
 ## Status
 
-Updated 2026-10-30.
+Updated 2026-11-04.
 
 | Game | Executable | Status |
 |---|---|---|
-| Uncharted 1 | `eboot.bin` | **Playable**, at **60 FPS** with sound (gunshots included); still has some crashes |
-| Uncharted 2 | `big2-ps4_Shipping.elf` | **Playable**, 51–60 FPS, with its own saves; still has some crashes |
-| Uncharted 3 | `big3-ps4_Shipping.elf` | **100% playable from start to end**, at **60 FPS in 1080p, with no upscaling or frame generation**. Some parts still need optimization and drop below 60 (around 50 in heavy vegetation, the Chateau), always staying above 30 FPS. One crash in the whole playthrough, not reproduced or fixed yet. Known issues listed below |
+| Uncharted 1 | `eboot.bin` | **100% playable from start to end**, at **60 FPS** |
+| Uncharted 2 | `big2-ps4_Shipping.elf` | **Playable**, not yet tested to the end. It has the weakest performance, with FPS drops in several parts. Its own saves |
+| Uncharted 3 | `big3-ps4_Shipping.elf` | **100% playable from start to end**, at **60 FPS in 1080p, with no upscaling or frame generation**. Some parts still drop below 60 (around 50 in heavy vegetation, the Chateau), less than in UC2. Known issues listed below |
 
 New in 0.3.9:
 - Switching games from the collection menu works: no more gray screen, and the new game starts with its own options.
@@ -144,23 +150,27 @@ longer shows God of War III-only items (cheats, orbs, upscaler, render resolutio
 games; and black screen on Intel GPUs fixed (from Supermedo's 0.3.3, untested here).
 
 Known issues:
+
+**All games**
+- If the game closes and the log ends with "Device lost", update your GPU driver: it fixed a crash a player had in UC1 every time at the same spot.
+
 **Uncharted 3**
-- **One crash in a full playthrough, not fixed yet.** It could not be reproduced. A likely cause is a GPU driver timeout after long sessions: the port can send a very large block of memory (~1.5 GB) to the GPU in one go, the frame stalls and Windows/AMD closes the game. Save often.
+- **Rare crash after long sessions.** Seen once in a full playthrough and not reproduced since. A likely cause is a GPU driver timeout: the port can send a very large block of memory (~1.5 GB) to the GPU in one go, the frame stalls and the driver closes the game. Keep your GPU driver up to date and save often.
 - **Short dips in 1% low FPS where shadow maps are rebuilt.** A shadow map array is rebuilt one layer at a time instead of reused (frames of 25-50 ms). The dark flash on walls and the flickering lights these rebuilds caused are fixed (`UC_DEPTH_KEEP_CLEAR`). Seen in The Citadel (chapter at 37%).
-- **Some parts still need optimization.** FPS drops below 60 in a few places (heavy vegetation such as The Chateau runs around 50), always above 30. The limit is the emulated GPU command processor on the CPU.
+- **Some parts still drop below 60 FPS** (heavy vegetation such as The Chateau runs around 50), always above 30 and less than in UC2. The limit is the emulated GPU command processor on the CPU.
 - The game is locked to 60 FPS. Higher frame rates speed up the game logic.
 - Upscaling (FSR/DLSS) does not work for Uncharted: the inherited hooks are specific to God of War III. 1440p and 4K render natively instead (see above).
 - **1440p and 4K are not fully tested yet** (all three games): only short sessions so far. If a game crashes or looks wrong above 1080p, go back to 1920x1080 in Options and please report it.
 
 **Uncharted 2**
 - **Scenery textures can flicker in 4K** (and possibly 1440p). Not seen in 1080p so far. Not fixed yet.
-- Train prologue (fixed in 0.3.8): with `UC_READBACK_ASYNC` and `UC_READBACK_SIDEQ` on, Drake walked and ran about 35% slower at 60 FPS, so the carriage fell before he reached the jump. The cause was the native constant copies racing the game; UC2 now keeps those two on and runs the copies into the train's range on the GPU (`UC_SCALAR_COPY_GPU_RANGE`).
-- **Character physics:** a few reports of Drake getting stuck inside objects (seen at the start of chapter 6). Being investigated.
-- Lightly tested. Please report missing sounds or visual bugs.
+- **Not tested to the end yet**, and it has the weakest performance of the three: FPS drops in several parts.
+- **Character physics:** a few reports of Drake getting stuck inside objects (seen at the start of chapter 6), sometimes with stutter. Being investigated.
+- Please report missing sounds or visual bugs.
 
 **Uncharted 1**
 - In the bunker, some pieces of broken crates can turn too bright a while later. This is the game's own bug: it happens on PS4 too.
-- Lightly tested. Please report missing sounds or visual bugs.
+- Please report missing sounds or visual bugs.
 
 The project log (in Portuguese), with what was done and why, is in
 [docs/uc3/DEVLOG.md](docs/uc3/DEVLOG.md).

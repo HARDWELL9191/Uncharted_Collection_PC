@@ -1986,3 +1986,8 @@ Issue 29 (UC1 RTX 3050, device lost na Fortaleza) foi resolvido pelo jogador atu
 ## 2026-11-04 - READMEs da 0.3.9
 
 README.md, README.pt-BR.md: secao "New in 0.3.9"/"Novo na 0.3.9". LEIA-ME.txt (vai no zip): versao 0.3.9, F11, botao Sair do jogo, botao Relatorio para relatar. Backup _claude/readme039_pre.
+
+
+## 2026-11-04 - Situacao dos jogos nos READMEs
+
+Matheus (thread GitHub): terminou UC1 e UC3. README.md, README.pt-BR.md e LEIA-ME: UC1 e UC3 100% jogaveis do inicio ao fim a 60 FPS; UC2 jogavel, ainda nao testado ate o fim, pior desempenho (quedas em varias partes). UC1 deixa de ser "pouco testado". Backup _claude/readme_situacao_pre.

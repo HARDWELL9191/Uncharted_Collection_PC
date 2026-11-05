@@ -3,7 +3,9 @@ Uncharted: The Nathan Drake Collection para PC (ucndc_pc) v0.3.9
 [English below]
 
 Port não oficial. Nenhum arquivo do jogo vem neste pacote: você precisa do dump do seu
-próprio PS4 (testado: CUSA02344 com a atualização 01.02).
+próprio PS4. Testado com a CUSA02344 e a CUSA02320. Outras versões da coletânea devem
+funcionar normalmente, desde que tenham a atualização 1.02. A versão 1.00 (sem atualização)
+roda, mas tem vários bugs que já estão corrigidos com a 1.02.
 
 Requisitos
 - Windows 10 (1903 ou mais novo) ou 11, 64 bits.
@@ -11,6 +13,8 @@ Requisitos
   Mais nada: não precisa instalar Python, MSYS2 nem abrir terminal.
 
 Como jogar
+Recomendado: RecompLauncher (https://recomplauncher.com/game/uncharted-collection-pc), que
+instala, atualiza e abre o port. Sem ele, siga os passos abaixo.
 1. Extraia esta pasta para qualquer lugar, por exemplo C:\Jogos\ucndc_pc (não rode de dentro do zip).
 2. Abra "Uncharted Launcher.exe". Se o Windows mostrar "O Windows protegeu o computador",
    clique em "Mais informações" e depois em "Executar assim mesmo": o programa não é assinado.
@@ -21,10 +25,11 @@ Como jogar
    enquanto os shaders são criados; depois fica liso.
 
 Situação
-- Uncharted 1: jogável, ainda com alguns travamentos.
-- Uncharted 2: jogável, ainda com alguns travamentos.
-- Uncharted 3: jogável, 60 FPS em 1080p, sem upscaling nem geração de quadros
-  (perto de 50 FPS em áreas com muita vegetação, como o Castelo).
+- Uncharted 1: 100% jogável do início ao fim, a 60 FPS.
+- Uncharted 2: jogável, ainda não testado até o fim. É o que tem o pior desempenho, com quedas
+  de FPS em várias partes.
+- Uncharted 3: 100% jogável do início ao fim, 60 FPS em 1080p, sem upscaling nem geração de
+  quadros (perto de 50 FPS em áreas com muita vegetação, como o Castelo; menos quedas que no UC2).
 
 Durante o jogo
 - Insert ou F1 no teclado, ou L2 + R2 + L3 + R3 no controle, abre o menu do port. Lá tem o
@@ -48,10 +53,11 @@ Dados
 - Configurações: ucndc.ini e launcher.json, nesta pasta.
 
 Problemas
-- UC2, prólogo do trem: talvez seja preciso pular antes do que no PS4. Se o vagão continuar
-  caindo, desligue UC_HLE_INORDER e UC_ACB_DISPATCH_PIPE em Opções > Avançado nessa parte.
-- UC3: travamento raro depois de sessões longas (timeout do driver de vídeo). Salve com frequência.
+- UC3: travamento raro depois de sessões longas (timeout do driver de vídeo). Mantenha o driver
+  de vídeo atualizado e salve com frequência.
+- UC2: alguns relatos do Drake ficando preso dentro de objetos (começo do capítulo 6). Em investigação.
 - UC2 em 4K (talvez 1440p): texturas do cenário podem piscar. Ainda sem correção.
+- Fecha com "Device lost" no log: atualize o driver de vídeo.
 - O jogo não abre ou fecha sozinho: clique em "Relatório" no launcher e envie o zip que ele
   cria em user\ junto com o relato (ou envie o arquivo user\last_run.log).
 
@@ -61,13 +67,17 @@ relação com a Sony, a Naughty Dog ou a Bluepoint Games. Licença: GPL v2 ou po
 
 ---------------------------------------------------------------------------------------------
 
-Unofficial port. No game files are included: you need a dump of your own PS4
-(tested: CUSA02344 with the 01.02 update).
+Unofficial port. No game files are included: you need a dump of your own PS4.
+Tested with CUSA02344 and CUSA02320. Other versions of the collection should work just as well,
+as long as they have the 1.02 update. Version 1.00 (no update) runs, but has several bugs that
+are already fixed with 1.02.
 
 Requirements: 64-bit Windows 10 (1903+) or 11 and a Vulkan 1.3 GPU with a current driver.
 Nothing else to install.
 
 How to play
+Recommended: RecompLauncher (https://recomplauncher.com/game/uncharted-collection-pc), which
+installs, updates and starts the port. Without it, follow the steps below.
 1. Extract this folder anywhere (not inside the zip).
 2. Open "Uncharted Launcher.exe" (if SmartScreen appears: More info, Run anyway).
 3. Pick the game folder of your dump (the one with eboot.bin and big3-ps4_Shipping.elf); an
@@ -75,9 +85,10 @@ How to play
    with the update already merged in is recognized.
 4. Click PLAY on a game. The first start is slower and may stutter while shaders are built.
 
-Status: Uncharted 3 plays at 60 FPS in 1080p with no upscaling or frame generation (around
-50 FPS in heavy vegetation such as the Chateau);
-Uncharted 2 and Uncharted 1 are playable, still with some crashes.
+Status: Uncharted 1 is 100% playable from start to end at 60 FPS. Uncharted 3 is 100% playable
+from start to end at 60 FPS in 1080p with no upscaling or frame generation (around 50 FPS in heavy
+vegetation such as the Chateau). Uncharted 2 is playable but not yet tested to the end; it has the
+weakest performance, with FPS drops in several parts.
 
 The launcher's Options button sets display mode, VSync, FPS limit and the FPS counter; Advanced
 lets you turn optimizations off ("Restore defaults" brings back the tested setup).
@@ -92,8 +103,8 @@ In game, Insert or F1 (or L2 + R2 + L3 + R3) opens the port menu (it has a "Quit
 F11 switches between window and fullscreen. Saves, shader cache and the log are in user\. When
 reporting a problem, click "Report" in the launcher and send the zip it makes in user\ (or send
 user\last_run.log).
-UC2 train prologue: you may need to jump earlier than on PS4; if the carriage still falls, turn
-off UC_HLE_INORDER and UC_ACB_DISPATCH_PIPE in Options > Advanced for that part. UC3: rare
-driver timeout crash after long sessions, so save often. UC2 in 4K (maybe 1440p): scenery textures
-can flicker, not fixed yet.
+Known issues: UC3 can rarely crash after long sessions (GPU driver timeout), so keep your GPU
+driver up to date and save often. UC2: a few reports of Drake getting stuck inside objects (start
+of chapter 6), being investigated. UC2 in 4K (maybe 1440p): scenery textures can flicker, not
+fixed yet. If the game closes with "Device lost" in the log, update your GPU driver.
 Source code and credits: https://github.com/zorde23/Uncharted_Collection_PC
