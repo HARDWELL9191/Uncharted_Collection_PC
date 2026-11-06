@@ -34,8 +34,14 @@ jobs:
         shell: msys2 {0}
         run: |
           export WINPYTHON="$(cygpath -u "$pythonLocation")/python.exe"
-          bash build.sh
-          bash packaging/windows/package_uc.sh
+          echo "ninja: $(command -v ninja)  clang: $(command -v clang)  python: $WINPYTHON"
+          bash -x build.sh || { echo '--- out/gpu-build.log (tail) ---'; tail -80 out/gpu-build.log 2>/dev/null; exit 1; }
+          bash -x packaging/windows/package_uc.sh
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: out/*.log
       - uses: actions/upload-artifact@v4
         with:
           name: ucndc_pc-windows
