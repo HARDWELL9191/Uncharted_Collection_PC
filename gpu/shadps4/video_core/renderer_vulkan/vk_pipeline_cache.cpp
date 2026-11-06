@@ -1225,15 +1225,33 @@ const GraphicsPipeline* PipelineCache::TryPreparedPipeline(const PreparedDraw& p
 }
 
 // uc3: GOW3_SHADER_WAIT_MS=n - a draw whose shader or pipeline is still compiling in the
-// background waits for it, at most n ms of waiting per 100 ms, instead of being skipped. A skipped
+// background waits for it, at most n ms of waiting per window, instead of being skipped. A skipped
 // draw hides the object for a frame or two the first time it is seen in a session (UC1 submarine
 // flicker); with the budget spent, the draw is skipped as before.
+//
+// shaderwait fork (2026-11-06): the 0.3.8 version waited for *every* compile in the queue, up to
+// 50 ms per 100 ms. Turning the camera queues dozens of new shaders at once, so the first missed
+// draw blocked on all of them and dropped ~3 frames in a row (zorde23/Uncharted_Collection_PC#33).
+// Now, by default:
+//  - GOW3_SHADER_WAIT_TARGETED=1 (default): a draw waits only for the shader or pipeline it needs
+//    itself; unrelated compiles keep running in the background. =0 restores the old wait-for-all.
+//  - GOW3_SHADER_WAIT_WINDOW_MS=w (default 16, one 60 FPS frame; upstream used 100): the budget
+//    refills every w ms.
+//  - GOW3_SHADER_WAIT_CAP_MS=c (default 4): n is capped at c, so the stock 0.3.9 launcher's n=50
+//    still means at most ~4 ms of waiting per frame, which a fast PC absorbs without a visible
+//    hitch. A shader that takes longer is skipped for that frame and waited for again on the next
+//    one, so it still shows up within a frame or two. GOW3_SHADER_WAIT_CAP_MS=0 lifts the cap.
 static u32 ShaderWaitMs() {
     static const u32 ms = [] {
         const char* env = std::getenv("GOW3_SHADER_WAIT_MS");
-        const u32 v = env ? u32(std::strtoul(env, nullptr, 10)) : 0u;
+        u32 v = env ? u32(std::strtoul(env, nullptr, 10)) : 0u;
+        const char* cap_env = std::getenv("GOW3_SHADER_WAIT_CAP_MS");
+        const u32 cap = cap_env ? u32(std::strtoul(cap_env, nullptr, 10)) : 4u;
+        if (cap && v > cap) {
+            v = cap;
+        }
         if (v) {
-            std::printf("Pipeline cache: draws wait for compiling shaders, up to %u ms per 100 ms\n",
+            std::printf("Pipeline cache: draws wait for compiling shaders, up to %u ms per window\n",
                         v);
         }
         return v;
@@ -1241,14 +1259,45 @@ static u32 ShaderWaitMs() {
     return ms;
 }
 
+static u32 ShaderWaitWindowMs() {
+    static const u32 ms = [] {
+        const char* env = std::getenv("GOW3_SHADER_WAIT_WINDOW_MS");
+        u32 v = env ? u32(std::strtoul(env, nullptr, 10)) : 16u;
+        if (v == 0) {
+            v = 16;
+        }
+        std::printf("Pipeline cache: shader wait window %u ms\n", v);
+        return v;
+    }();
+    return ms;
+}
+
+static bool ShaderWaitTargeted() {
+    static const bool on = [] {
+        const char* env = std::getenv("GOW3_SHADER_WAIT_TARGETED");
+        const bool v = !env || std::strtoul(env, nullptr, 10) != 0;
+        std::printf("Pipeline cache: shader wait %s\n", v ? "targeted (own compile only)"
+                                                            : "for the whole queue");
+        return v;
+    }();
+    return on;
+}
+
 bool PipelineCache::WaitPendingCompiles() {
     const u32 budget_ms = ShaderWaitMs();
     if (!budget_ms || !compiler || (pending_programs.empty() && pending_graphics.empty())) {
         return false;
     }
+    const bool targeted = ShaderWaitTargeted();
+    // Copies: Publish* below may drop the queue's references while we still look at them.
+    auto own_shader = sel.pending_shader;
+    auto own_pipeline = wait_pipeline;
+    if (targeted && !own_shader && !own_pipeline) {
+        return false; // nothing of this draw's own is queued (no capacity): skip, never block
+    }
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::now();
-    if (start - shader_wait_window > std::chrono::milliseconds{100}) {
+    if (start - shader_wait_window > std::chrono::milliseconds{ShaderWaitWindowMs()}) {
         shader_wait_window = start;
         shader_wait_spent = {};
     }
@@ -1258,14 +1307,23 @@ bool PipelineCache::WaitPendingCompiles() {
     }
     const auto deadline = start + (budget - shader_wait_spent);
     bool ready = true;
-    for (auto* program : pending_programs) {
-        if (program->pending && !program->pending->job.WaitUntil(deadline)) {
-            ready = false;
-            break;
+    if (targeted) {
+        if (own_shader) {
+            ready = own_shader->job.WaitUntil(deadline);
         }
-    }
-    for (auto it = pending_graphics.begin(); ready && it != pending_graphics.end(); ++it) {
-        ready = it.value()->job.WaitUntil(deadline);
+        if (ready && own_pipeline) {
+            ready = own_pipeline->job.WaitUntil(deadline);
+        }
+    } else {
+        for (auto* program : pending_programs) {
+            if (program->pending && !program->pending->job.WaitUntil(deadline)) {
+                ready = false;
+                break;
+            }
+        }
+        for (auto it = pending_graphics.begin(); ready && it != pending_graphics.end(); ++it) {
+            ready = it.value()->job.WaitUntil(deadline);
+        }
     }
     shader_wait_spent += Clock::now() - start;
     PublishShaders();
@@ -1294,6 +1352,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
 
 const GraphicsPipeline* PipelineCache::GetGraphicsPipelineOnce(const DrawIndirectParams params,
                                                                const PreparedDraw* prepared) {
+    wait_pipeline.reset(); // shaderwait fork: set below when this draw's pipeline is queued
     const bool split = GfxPipeSplit();
     const u64 t0 = split ? __rdtsc() : 0;
     SeedWorkerCaches();
@@ -1358,6 +1417,9 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipelineOnce(const DrawIndirec
             if (queued) {
                 pending_graphics.emplace(sel.graphics_key, std::move(build));
             }
+        }
+        if (const auto own = pending_graphics.find(sel.graphics_key); own != pending_graphics.end()) {
+            wait_pipeline = own->second; // shaderwait fork: this draw's own pipeline
         }
         ++g_gow3_pending_draws;
         return nullptr;
@@ -1599,6 +1661,7 @@ bool PipelineCache::RefreshGraphicsStages(PipelineSelection& sel) {
     auto& key = sel.graphics_key;
     sel.fetch_shader = std::nullopt;
     sel.compilation_pending = false;
+    sel.pending_shader.reset();
 
     Shader::Backend::Bindings binding{};
     const auto bind_stage = [&](HwStage stage_in, SwStage stage_out) -> bool {
@@ -1624,6 +1687,14 @@ bool PipelineCache::RefreshGraphicsStages(PipelineSelection& sel) {
             GetProgram(sel, stage_in, stage_out, params, binding);
         if (!sel.infos[stage_out_idx]) {
             sel.compilation_pending = true;
+            // shaderwait fork: remember which compile this draw is missing (GPU thread only).
+            if (!sel.worker && !sel.pending_shader) {
+                std::shared_lock lk{programs_mutex};
+                const auto found = program_cache.find(params.hash);
+                if (found != program_cache.end() && found->second->pending) {
+                    sel.pending_shader = found->second->pending;
+                }
+            }
             // uc3: GOW3_SKIP_LOG=1: why a draw has no shader (cave torch table never drawn?).
             static const bool skip_log = std::getenv("GOW3_SKIP_LOG") != nullptr;
             if (skip_log && !sel.worker) {

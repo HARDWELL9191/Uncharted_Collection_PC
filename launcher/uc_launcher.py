@@ -43,7 +43,7 @@ KEEP_LOGS = 10
 INPUT_FILE = DATA_DIR / 'input.ini'
 APP_NAME = 'Uncharted Collection PC'
 EXE_NAME = 'Uncharted Launcher.exe'
-VERSION = '0.3.9'
+VERSION = '0.3.9.1'
 RELEASES_API = 'https://api.github.com/repos/zorde23/Uncharted_Collection_PC/releases/latest'
 RELEASES_PAGE = 'https://github.com/zorde23/Uncharted_Collection_PC/releases/latest'
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -86,7 +86,7 @@ GAMES = [
       # 0.3.7: videos keep updating (frozen picture), texture memory limit from the driver's budget.
       'GOW3_VIDEO_INVALIDATE': '1', 'GOW3_GC_LIVE_BUDGET': '1',
       # 0.3.8: a draw waits for its shader still compiling instead of vanishing (submarine flicker).
-      'GOW3_SHADER_WAIT_MS': '50'}),
+      'GOW3_SHADER_WAIT_MS': '4', 'GOW3_SHADER_WAIT_WINDOW_MS': '16'}),
     ('uc2', 'Uncharted 2: Among Thieves', 'big2-ps4_Shipping.elf', ('Jogável', 'Playable'),
      # GOW3_READBACK_ASYNC and GOW3_READBACK_SIDEQ alone slow Drake's walk and run at 60 FPS (the
      # prologue train carriage outran him): the scalar copy HLE's guest copies into 0x103a1xxxxx race
@@ -102,7 +102,7 @@ GAMES = [
       # 0.3.7: aim focus without whole-screen blur (Umar-Qayyum-dev, Supermedo's uncharted_pc), videos
       # keep updating, texture memory limit from the driver's budget.
       'GOW3_TINY_READBACK': '1', 'GOW3_VIDEO_INVALIDATE': '1', 'GOW3_GC_LIVE_BUDGET': '1',
-      'GOW3_SHADER_WAIT_MS': '50',
+      'GOW3_SHADER_WAIT_MS': '4', 'GOW3_SHADER_WAIT_WINDOW_MS': '16',
       # 0.3.9: the mounted gun turns with the mouse (tested by Matheus 2026-10-31).
       'GOW3_MOUSE_U2_GUN': '1'}),
     # uc3 without GOW3_READBACK_SIDEQ: with it Drake's scarf jumps around in the desert (the guest
@@ -114,7 +114,7 @@ GAMES = [
       # 0.3.7: Sully's shirt on NVIDIA (BilalReloaded, via Supermedo's uncharted_pc), videos keep
       # updating, texture memory limit from the driver's budget.
       'GOW3_LDS_BARRIERS_MULTIWAVE': '1', 'GOW3_VIDEO_INVALIDATE': '1', 'GOW3_GC_LIVE_BUDGET': '1',
-      'GOW3_SHADER_WAIT_MS': '50'}),
+      'GOW3_SHADER_WAIT_MS': '4', 'GOW3_SHADER_WAIT_WINDOW_MS': '16'}),
 ]
 # Off unless chosen in Options > Advanced (launcher.json 'experimental'): (games, value).
 EXPERIMENTAL = {'GOW3_PREP_TRUST_A1': (('uc1', 'uc3'), '1'), 'GOW3_PREP_WORKERS': (('uc1', 'uc2', 'uc3'), '2')}
@@ -201,7 +201,7 @@ FIX_TOGGLES = {'GOW3_MOUSE_AIM_U1_ALL', 'GOW3_SCALAR_COPY_GPU_RANGE', 'GOW3_SYNC
 FPS_LIMITS = [('0', ('Sem limite (60)', 'No limit (60)')), ('30', ('30', '30')), ('60', ('60', '60'))]
 # Fixed per game, never a user switch: UC1 needs LOW_IMAGE, AJM_END_RULES and EOP_TICK_WAIT; READBACKS
 # keeps the scenery; FRAME_STATS, FAULT_WRITES, MOUSE_CAMERA_LOG and CB_WATCH are only log aids; HLE_INVALIDATE follows SCALAR_COPY_HLE (texture swaps).
-FIXED = {'GOW3_READBACKS', 'GOW3_FRAME_STATS', 'GOW3_HANG_WATCH', 'GOW3_LOW_IMAGE', 'GOW3_AJM_END_RULES', 'GOW3_EOP_TICK_WAIT',
+FIXED = {'GOW3_READBACKS', 'GOW3_SHADER_WAIT_WINDOW_MS', 'GOW3_FRAME_STATS', 'GOW3_HANG_WATCH', 'GOW3_LOW_IMAGE', 'GOW3_AJM_END_RULES', 'GOW3_EOP_TICK_WAIT',
          'GOW3_HLE_INVALIDATE', 'GOW3_FAULT_WRITES',
          'GOW3_MOUSE_CAMERA_LOG', 'GOW3_CB_WATCH', 'GOW3_OVERLAP_KEEP_VIEW', 'GOW3_UC1_BIND_RETRY',
          'GOW3_RED_ZONE', 'GOW3_MOUSE_STEADY', 'GOW3_MOUSE_AIM_U1_POST', 'GOW3_MOUSE_U1_LEASH',

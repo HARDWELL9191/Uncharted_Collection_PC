@@ -103,6 +103,9 @@ struct PipelineSelection {
     GraphicsPipelineKey graphics_key{};
     bool motion = false;
     bool compilation_pending = false;
+    /// shaderwait fork: the stage compile this selection is missing, so a draw waits for its own
+    /// shader only instead of the whole queue (GPU thread selection only; workers leave it empty).
+    std::shared_ptr<AsyncShaderCompilation> pending_shader{};
     DrawIndirectParams draw_indirect_params{};
     struct PrepWorker* worker{}; ///< set: read-only selection for a draw-preparation worker
 };
@@ -225,6 +228,8 @@ private:
     bool WaitPendingCompiles();
     std::chrono::steady_clock::time_point shader_wait_window{};
     std::chrono::steady_clock::duration shader_wait_spent{};
+    /// shaderwait fork: the pipeline compile the last missed draw needs (see WaitPendingCompiles).
+    std::shared_ptr<AsyncGraphicsCompilation> wait_pipeline{};
     void FinishCompilations();
     void SeedWorkerCaches();
     bool CheckCacheProfile();
