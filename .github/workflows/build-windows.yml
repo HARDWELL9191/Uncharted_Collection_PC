@@ -34,6 +34,10 @@ jobs:
         shell: msys2 {0}
         run: |
           export WINPYTHON="$(cygpath -u "$pythonLocation")/python.exe"
+          # msys2-env.sh defaults to C:/msys64, which GitHub's runners also ship (an older MSYS2).
+          # Mixing its usr/bin with this one's runtime breaks plain tools like cp: point it here.
+          export MSYS2_ROOT="$(cygpath -u "$(cygpath -m /)")"
+          echo "MSYS2_ROOT=$MSYS2_ROOT"
           echo "ninja: $(command -v ninja)  clang: $(command -v clang)  python: $WINPYTHON"
           bash -x build.sh || { echo '--- out/gpu-build.log (tail) ---'; tail -80 out/gpu-build.log 2>/dev/null; exit 1; }
           bash -x packaging/windows/package_uc.sh
